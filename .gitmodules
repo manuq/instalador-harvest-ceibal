@@ -1,0 +1,12 @@
+[submodule "harvest-client"]
+	path = harvest-client
+	url = https://github.com/manuq/harvest-client.git
+	branch = ceibal
+[submodule "olpc-utils"]
+	path = olpc-utils
+	url = https://github.com/manuq/olpc-utils.git
+	branch = boot-stats
+[submodule "sugar-toolkit-gtk3"]
+	path = sugar-toolkit-gtk3
+	url = https://github.com/manuq/sugar-toolkit-gtk3.git
+	branch = spent-time-3
