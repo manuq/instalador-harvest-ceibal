@@ -1,0 +1,116 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import os
+import re
+import sys
+import glob
+import subprocess
+import logging
+
+logging_filename = "/home/olpc/.harvest-ceibal.log"
+
+logging.basicConfig(filename=logging_filename, level=logging.INFO,
+                    format='%(asctime)s %(levelname)-8s %(message)s',
+                    datefmt='%s')
+
+system_version = None
+
+rpm_names = ['gnome-python2-libwnck', 'libwnck']
+
+def parse_system_version(command_out):
+    result = re.search(r"OLPC OS (\S+) for (\S+),", command_out)
+    if result:
+        return [result.group(1), result.group(2)]
+
+def get_system_version():
+    global system_version
+    out = subprocess.check_output(['cat', '/etc/issue'])
+    system_version = parse_system_version(out)
+    logging.info("La versión del sistema es: {0} {1}".format(system_version[0],
+                                                             system_version[1]))
+
+def check_rpms_installed():
+    for rpm in rpm_names:
+        try:
+            subprocess.check_call(['rpm', '-V', rpm])
+        except subprocess.CalledProcessError:
+            return False
+    return True
+
+def install_rpms():
+    if check_rpms_installed():
+        logging.info("Los rpms ya fueron instalados.")
+        return
+
+    logging.info("Instalando rpms...")
+    rpms_dir = os.path.join("src", system_version[0], system_version[1], "rpms")
+    if not os.path.exists(rpms_dir):
+        logging.error("No existen los rpms.")
+        return
+    try:
+        rpms_glob = os.path.join(rpms_dir, '*rpm')
+        subprocess.check_call(['rpm', '-Uvh', rpms_glob])
+    except subprocess.CalledProcessError:
+        logging.error("Falló al instalar los rpms.")
+
+def remove_rpms():
+    logging.info("Quitando rpms...")
+    try:
+        subprocess.check_call(['rpm', '-e'] + rpm_names)
+    except subprocess.CalledProcessError:
+        logging.error("Falló al quitar los rpms.")
+
+def install():
+    logging.info("Comienza la instalación...")
+    get_system_version()
+    install_rpms()
+    logging.info("FIN")
+
+def remove():
+    logging.info("Comienza la desinstalación...")
+    get_system_version()
+    remove_rpms()
+    logging.info("FIN")
+
+def test():
+    import doctest
+    doctest.testmod()
+
+def usage():
+    print("Usage:")
+    print("harvest-ceibal [install|remove]")
+
+
+__test__ = dict(allem="""
+
+>>> out = 'OLPC OS 13.4.0 for XO-4, customized (build 5)\\n' + \\
+...       'Kernel \\r on an \\m (\l)\\n'
+
+>>> parse_system_version(out)
+['13.4.0', 'XO-4']
+
+""")
+
+
+def as_sudo(admin_function):
+    euid = os.geteuid()
+    if euid != 0:
+        print("Necesita ser root. Corriendo sudo...")
+        args = ['sudo', sys.executable] + sys.argv + [os.environ]
+        os.execlpe('sudo', *args)
+    else:
+        admin_function()
+
+
+if __name__ == '__main__':
+    if len(sys.argv) == 2:
+        if sys.argv[1] == 'install':
+            as_sudo(install)
+        elif sys.argv[1] == 'remove':
+            as_sudo(remove)
+        elif sys.argv[1] == 'test':
+            test()
+        else:
+            usage()
+    else:
+        usage()
