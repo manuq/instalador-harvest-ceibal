@@ -105,7 +105,10 @@ def backup_files():
 
 def copy_files():
     logging.info("Copiando archivos...")
-
+    for dest in OLPC_UTILS_FILES:
+        src = os.path.join("olpc-utils", os.path.relpath(dest, "/"))
+        mkdir_p(os.path.dirname(dest))
+        shutil.copy(src, dest)
 
 def restore_files():
     if not os.path.exists(BACKUP_DIR):
@@ -121,7 +124,8 @@ def restore_files():
 
 def remove_files():
     logging.info("Eliminando archivos...")
-
+    for path in OLPC_UTILS_FILES:
+        os.remove(path)
 
 def install():
     logging.info("Comienza la instalación...")
