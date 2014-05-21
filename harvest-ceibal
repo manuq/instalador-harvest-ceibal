@@ -3,24 +3,52 @@
 import os
 import re
 import sys
+import pwd
+import grp
 import glob
-import subprocess
+import errno
+import shutil
 import logging
+import subprocess
 
-logging_filename = "/home/olpc/.harvest-ceibal.log"
-
-logging.basicConfig(filename=logging_filename, level=logging.INFO,
+LOGGING_FILENAME = "/home/olpc/.harvest-ceibal.log"
+logging.basicConfig(filename=LOGGING_FILENAME, level=logging.INFO,
                     format='%(asctime)s %(levelname)-8s %(message)s',
                     datefmt='%s')
 
+RPM_NAMES = ['gnome-python2-libwnck', 'libwnck']
+BACKUP_DIR = "/home/olpc/.harvest-ceibal/backup/"
+
+OLPC_UTILS_FILES = [
+    "/etc/xdg/autostart/olpc-gnome-stats.desktop",
+    "/usr/bin/olpc-connectivity",
+    "/usr/bin/olpc-gnomestats",
+    "/usr/bin/olpc-session",
+    "/usr/lib/systemd/system/olpc-log-shutdown.service",
+    "/usr/sbin/olpc-log-shutdown"]
+
+OLPC_UID = pwd.getpwnam("olpc").pw_uid
+OLPC_GID = grp.getgrnam("olpc").gr_gid
+ROOT_UID = 0
+ROOT_GID = 0
+
 system_version = None
 
-rpm_names = ['gnome-python2-libwnck', 'libwnck']
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc:
+        if exc.errno == errno.EEXIST and os.path.isdir(path):
+            pass
+        else:
+            raise
+
 
 def parse_system_version(command_out):
     result = re.search(r"OLPC OS (\S+) for (\S+),", command_out)
     if result:
         return [result.group(1), result.group(2)]
+
 
 def get_system_version():
     global system_version
@@ -30,12 +58,13 @@ def get_system_version():
                                                              system_version[1]))
 
 def check_rpms_installed():
-    for rpm in rpm_names:
+    for rpm in RPM_NAMES:
         try:
             subprocess.check_call(['rpm', '-V', rpm])
         except subprocess.CalledProcessError:
             return False
     return True
+
 
 def install_rpms():
     if check_rpms_installed():
@@ -53,28 +82,69 @@ def install_rpms():
     except subprocess.CalledProcessError:
         logging.error("Falló al instalar los rpms.")
 
+
 def remove_rpms():
     logging.info("Quitando rpms...")
     try:
-        subprocess.check_call(['rpm', '-e'] + rpm_names)
+        subprocess.check_call(['rpm', '-e'] + RPM_NAMES)
     except subprocess.CalledProcessError:
         logging.error("Falló al quitar los rpms.")
+
+
+def backup_files():
+    if os.path.exists(BACKUP_DIR):
+        logging.info("Se omite el backup porque ya existe uno.")
+        return
+    logging.info("Haciendo backup...")
+    mkdir_p(BACKUP_DIR)
+    for src in OLPC_UTILS_FILES:
+        if os.path.exists(src):
+            dest = os.path.join(BACKUP_DIR, os.path.relpath(src, "/"))
+            mkdir_p(os.path.dirname(dest))
+            shutil.copy(src, dest)
+
+def copy_files():
+    logging.info("Copiando archivos...")
+
+
+def restore_files():
+    if not os.path.exists(BACKUP_DIR):
+        logging.info("Se omite la restauración del backup porque no existe uno.")
+        return
+    logging.info("Restaurando backup...")
+    for root, dirs, files in os.walk(BACKUP_DIR):
+        for name in files:
+            src = os.path.join(root, name)
+            dest = os.path.join("/", os.path.relpath(src, BACKUP_DIR))
+            mkdir_p(os.path.dirname(dest))
+            shutil.copy(src, dest)
+
+def remove_files():
+    logging.info("Eliminando archivos...")
+
 
 def install():
     logging.info("Comienza la instalación...")
     get_system_version()
     install_rpms()
+    backup_files()
+    copy_files()
     logging.info("FIN")
+
 
 def remove():
     logging.info("Comienza la desinstalación...")
     get_system_version()
     remove_rpms()
+    remove_files()
+    restore_files()
     logging.info("FIN")
+
 
 def test():
     import doctest
     doctest.testmod()
+
 
 def usage():
     print("Usage:")
@@ -94,7 +164,7 @@ __test__ = dict(allem="""
 
 def as_sudo(admin_function):
     euid = os.geteuid()
-    if euid != 0:
+    if euid != ROOT_UID:
         print("Necesita ser root. Corriendo sudo...")
         args = ['sudo', sys.executable] + sys.argv + [os.environ]
         os.execlpe('sudo', *args)
