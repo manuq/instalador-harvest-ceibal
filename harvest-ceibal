@@ -155,19 +155,39 @@ def remove_files():
     for path in OLPC_UTILS_FILES:
         os.remove(path)
 
+def enable_services():
+    logging.info("Activando servicios...")
+    try:
+        subprocess.check_call(["systemctl", "enable", "olpc-log-shutdown.service"])
+    except subprocess.CalledProcessError:
+        logging.error("Falló la activación de los servicios.")
+
+def disable_services():
+    logging.info("Desactivando servicios...")
+    try:
+        subprocess.check_call(["systemctl", "disable", "olpc-log-shutdown.service"])
+    except subprocess.CalledProcessError:
+        logging.error("Falló la desactivación de los servicios.")
+
 def install():
     logging.info("Comienza la instalación...")
     get_system_version()
     install_rpms()
     backup_files()
     copy_files()
+    print("Reinicie y corra: harvest-ceibal postinstall")
     logging.info("FIN")
 
+def postinstall():
+    logging.info("Comienza la post-instalación...")
+    enable_services()
+    logging.info("FIN")
 
 def remove():
     logging.info("Comienza la desinstalación...")
     get_system_version()
     remove_rpms()
+    disable_services()
     remove_files()
     restore_files()
     logging.info("FIN")
@@ -180,7 +200,7 @@ def test():
 
 def usage():
     print("Usage:")
-    print("harvest-ceibal [install|remove]")
+    print("harvest-ceibal [install|postinstall|remove]")
 
 
 __test__ = dict(allem="""
@@ -210,6 +230,8 @@ if __name__ == '__main__':
             as_sudo(install)
         elif sys.argv[1] == 'remove':
             as_sudo(remove)
+        elif sys.argv[1] == 'postinstall':
+            as_sudo(postinstall)
         elif sys.argv[1] == 'test':
             test()
         else:
