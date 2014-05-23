@@ -10,11 +10,15 @@ import errno
 import shutil
 import logging
 import subprocess
+import ConfigParser
+
 
 LOGGING_FILENAME = "/home/olpc/.harvest-ceibal.log"
 logging.basicConfig(filename=LOGGING_FILENAME, level=logging.INFO,
                     format='%(asctime)s %(levelname)-8s %(message)s',
                     datefmt='%s')
+
+SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 
 RPM_NAMES = ['gnome-python2-libwnck', 'libwnck']
 BACKUP_DIR = "/home/olpc/.harvest-ceibal/backup/"
@@ -34,6 +38,14 @@ ROOT_GID = 0
 
 HARVEST_WEBSERVICE_DIR = "/usr/share/sugar/extensions/webservice/harvest/"
 HARVEST_CPSECTION_DIR = "/usr/share/sugar/extensions/cpsection/webaccount/services/harvest/"
+HARVEST_CONFIG_PATH = os.path.join(SCRIPT_PATH, 'config.cfg')
+HARVEST_OPTIONS = [
+    ('api_key', 'string'),
+    ('timestamp', 'int'),
+    ('retry', 'int'),
+    ('editable', 'bool'),
+    ('hostname', 'string'),
+]
 
 system_version = None
 
@@ -169,12 +181,53 @@ def disable_services():
     except subprocess.CalledProcessError:
         logging.error("Falló la desactivación de los servicios.")
 
+def demote(user_uid, user_gid):
+    def result():
+        os.setgid(user_gid)
+        os.setuid(user_uid)
+    return result
+
+def configure_harvest():
+    env = os.environ.copy()
+    env['LOGNAME']  = 'olpc'
+    env['USER']  = env['LOGNAME']
+    env['HOME']  = '/home/olpc'
+    env['PWD']  = env['HOME']
+
+    config = ConfigParser.ConfigParser()
+    config.read(HARVEST_CONFIG_PATH)
+    for option, opt_type in HARVEST_OPTIONS:
+        value = None
+        try:
+            value = config.get('harvest', option, opt_type)
+
+        except ConfigParser.NoSectionError, e:
+            logging.error("Falló la lectura del archivo de configuración.")
+            raise e
+        except ConfigParser.NoOptionError, e:
+            logging.error("Falló el formato del archivo de configuración.")
+            raise e
+
+        else:
+            gconfkey = "/desktop/sugar/collaboration/harvest_" + option
+            args = ['gconftool-2', '--set', gconfkey,
+                    '--type', opt_type, str(value)]
+
+            process = subprocess.Popen(
+                args,
+                preexec_fn=demote(OLPC_UID, OLPC_GID),
+                cwd=env['HOME'], env=env)
+            result = process.wait()
+
+
+
 def install():
     logging.info("Comienza la instalación...")
     get_system_version()
     install_rpms()
     backup_files()
     copy_files()
+    configure_harvest()
     print("Reinicie y corra: harvest-ceibal postinstall")
     logging.info("FIN")
 
