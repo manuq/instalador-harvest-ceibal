@@ -31,6 +31,13 @@ OLPC_UTILS_FILES = [
     "/usr/lib/systemd/system/olpc-log-shutdown.service",
     "/usr/sbin/olpc-log-shutdown"]
 
+SUGAR_FILES = [
+    "/usr/lib/python2.7/site-packages/sugar/activity/activity.py",
+]
+SUGAR3_FILES = [
+    "/usr/lib/python2.7/site-packages/sugar3/activity/activity.py",
+]
+
 OLPC_UID = pwd.getpwnam("olpc").pw_uid
 OLPC_GID = grp.getgrnam("olpc").gr_gid
 ROOT_UID = 0
@@ -128,7 +135,7 @@ def backup_files():
         return
     logging.info("Haciendo backup...")
     mkdir_p(BACKUP_DIR)
-    for src in OLPC_UTILS_FILES:
+    for src in OLPC_UTILS_FILES + SUGAR3_FILES + SUGAR_FILES:
         if os.path.exists(src):
             dest = os.path.join(BACKUP_DIR, os.path.relpath(src, "/"))
             mkdir_p(os.path.dirname(dest))
@@ -145,6 +152,16 @@ def copy_files():
         src = os.path.join("olpc-utils", os.path.relpath(dest, "/"))
         mkdir_p(os.path.dirname(dest))
         shutil.copy(src, dest)
+
+    src = os.path.join("src", system_version[0], "ALL/sugar-toolkit-gtk3/sugar3/activity/activity.py")
+    dest = SUGAR3_FILES[0]
+    mkdir_p(os.path.dirname(dest))
+    shutil.copy(src, dest)
+
+    src = os.path.join("src", system_version[0], "ALL/sugar-toolkit/sugar/activity/activity.py")
+    dest = SUGAR_FILES[0]
+    mkdir_p(os.path.dirname(dest))
+    shutil.copy(src, dest)
 
     dest_dir = "/usr/share/sugar/extensions/"
     src_path = os.path.join("harvest-client", "extensions")
