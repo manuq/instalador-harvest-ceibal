@@ -143,7 +143,7 @@ def backup_files():
 
     if os.path.exists(HARVEST_WEBSERVICE_DIR):
         copy_tree(HARVEST_WEBSERVICE_DIR, "/", BACKUP_DIR)
-    if os.path.exists(HARVEST_WEBSERVICE_DIR):
+    if os.path.exists(HARVEST_CPSECTION_DIR):
         copy_tree(HARVEST_CPSECTION_DIR, "/", BACKUP_DIR)
 
 def copy_files():
