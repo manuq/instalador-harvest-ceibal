@@ -25,7 +25,8 @@ BACKUP_DIR = "/home/olpc/.harvest-ceibal/backup/"
 
 OLPC_UTILS_FILES = [
     "/etc/xdg/autostart/olpc-gnome-stats.desktop",
-    "/usr/bin/olpc-connectivity",
+    "/etc/NetworkManager/dispatcher.d/22-log-connectivity",
+    "/usr/sbin/olpc-connectivity",
     "/usr/bin/olpc-gnomestats",
     "/usr/bin/olpc-session",
     "/usr/lib/systemd/system/olpc-log-shutdown.service",
