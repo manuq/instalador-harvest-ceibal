@@ -173,6 +173,9 @@ def copy_files():
     mkdir_p(os.path.dirname(dest))
     shutil.copy(src, dest)
 
+    os.chmod("/etc/NetworkManager/dispatcher.d/harvest-collect-ifup", 0755)
+    os.chmod("/etc/NetworkManager/dispatcher.d/22-log-connectivity", 0755)
+
 def restore_files():
     if not os.path.exists(BACKUP_DIR):
         logging.info("Se omite la restauración del backup porque no existe uno.")
