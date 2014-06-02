@@ -12,6 +12,13 @@ import logging
 import subprocess
 import ConfigParser
 
+is_dextrose = None
+try:
+    import ceibal.laptops
+except ImportError:
+    is_dextrose = False
+else:
+    is_dextrose = True
 
 LOGGING_FILENAME = "/home/olpc/.harvest-ceibal.log"
 logging.basicConfig(filename=LOGGING_FILENAME, level=logging.INFO,
@@ -88,11 +95,17 @@ def parse_system_version(command_out):
     if result:
         return [result.group(1), result.group(2)]
 
-
 def get_system_version():
     global system_version
-    out = subprocess.check_output(['cat', '/etc/issue'])
-    system_version = parse_system_version(out)
+    if is_dextrose:
+        xo = ceibal.laptops.XO()
+        build = xo._build
+        model = xo._model.rsplit()[0]
+        system_version = [build, model]
+    else:
+        out = subprocess.check_output(['cat', '/etc/issue'])
+        system_version = parse_system_version(out)
+
     logging.info("La versión del sistema es: {0} {1}".format(system_version[0],
                                                              system_version[1]))
 
@@ -106,6 +119,10 @@ def check_rpms_installed():
 
 
 def install_rpms():
+    if is_dextrose:
+        logging.info("No se instalan los rpms en dextrose.")
+        return
+
     if check_rpms_installed():
         logging.info("Los rpms ya fueron instalados.")
         return
@@ -123,6 +140,10 @@ def install_rpms():
 
 
 def remove_rpms():
+    if is_dextrose:
+        logging.info("No se quitan los rpms en dextrose.")
+        return
+
     logging.info("Quitando rpms...")
     try:
         subprocess.check_call(['rpm', '-e'] + RPM_NAMES)
@@ -246,10 +267,10 @@ def install():
     logging.info("Comienza la instalación...")
     get_system_version()
     install_rpms()
-    backup_files()
-    copy_files()
-    configure_harvest()
-    print("Reinicie y corra: harvest-ceibal postinstall")
+    # backup_files()
+    # copy_files()
+    # configure_harvest()
+    # print("Reinicie y corra: harvest-ceibal postinstall")
     logging.info("FIN")
 
 def postinstall():
@@ -261,9 +282,9 @@ def remove():
     logging.info("Comienza la desinstalación...")
     get_system_version()
     remove_rpms()
-    disable_services()
-    remove_files()
-    restore_files()
+    # disable_services()
+    # remove_files()
+    # restore_files()
     logging.info("FIN")
 
 
