@@ -1,0 +1,14 @@
+# Run olpc-configure early during boot
+
+[Unit]
+Description=OLPC Configuration
+DefaultDependencies=no
+After=sysinit.target local-fs.target alsa-restore.service
+Before=basic.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/olpc-configure
+
+[Install]
+WantedBy=basic.target

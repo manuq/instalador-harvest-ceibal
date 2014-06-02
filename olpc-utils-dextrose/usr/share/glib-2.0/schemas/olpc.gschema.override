@@ -1,0 +1,58 @@
+[org.gnome.desktop.interface]
+cursor-size=48
+
+# GNOME hardcodes DPI to 96, so we multiply the default scaling by 2.1 to
+# hit our DPI (201) and get appropriately sized fonts.
+# Cantarell appears to scale badly in comparison to other fonts, deviating
+# largely from the point scale. So switch the default font from Cantarell
+# to Sans to match the rest of the desktop.
+text-scaling-factor=2.1
+font-name='Sans 7'
+document-font-name='Sans 7'
+monospace-font-name='Monospace 7'
+
+[org.gnome.desktop.wm.preferences]
+titlebar-font='Sans Bold 7'
+
+[org.gnome.desktop.lockdown]
+disable-lock-screen=true
+disable-user-switching=true
+
+[org.gnome.desktop.session]
+session-name="gnome-fallback"
+
+[org.gnome.desktop.screensaver]
+lock-enabled=false
+
+# Epiphany defaults to using GNOME fonts, but displays them at some other
+# scaling value, and doesn't apply these preferences to all webpage fonts.
+# We specify slightly-larger font sizes than normal so that they appear
+# reasonable, and also so that font sizes in these regions get applied
+# to all webpage fonts.
+[org.gnome.Epiphany.web]
+use-gnome-fonts=false
+monospace-font='Monospace 6'
+sans-serif-font='Sans 8'
+serif-font='Serif 8'
+
+# Gnumeric's font is too big by default
+[org.gnome.gnumeric.core.defaultfont]
+size=7.0
+
+# Let powerd do media key handling (e.g. volume, power button) (#11815)
+[org.gnome.settings-daemon.plugins.media-keys]
+active=false
+
+# We don't put system updates directly in the hands of our users
+# https://bugzilla.redhat.com/show_bug.cgi?id=699348
+[org.gnome.settings-daemon.plugins.updates]
+active=false
+
+# GNOME annoyingly overrides the X configuration for middle mouse buttons,
+# and defaults to false. https://bugzilla.gnome.org/show_bug.cgi?id=633863
+[org.gnome.settings-daemon.peripherals.mouse]
+middle-button-enabled=true
+
+# User feedback suggests that we want the Nautilus-driven desktop (#12120)
+[org.gnome.desktop.background]
+show-desktop-icons=true

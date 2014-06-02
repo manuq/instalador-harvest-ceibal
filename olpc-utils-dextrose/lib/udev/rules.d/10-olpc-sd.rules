@@ -1,0 +1,18 @@
+# udev rules to assign persistent names to OLPC XO-1.5 SD cards and their
+# partitions, based on the MMC bus where they reside
+#
+# mmcblkXpY names cannot be used to reliably identify internal vs external
+# cards, because the "X" component is generated incrementally, regardless of
+# backing MMC bus number.
+#
+# Note that this file needs to present in both olpc-utils and the initramfs.
+
+SUBSYSTEM=="block", KERNEL=="mmcblk?", KERNELS=="mmc0", SYMLINK+="disk/mmc/mmc0"
+SUBSYSTEM=="block", KERNEL=="mmcblk?p?", KERNELS=="mmc0", SYMLINK+="disk/mmc/mmc0p%n"
+
+SUBSYSTEM=="block", KERNEL=="mmcblk?", KERNELS=="mmc1", SYMLINK+="disk/mmc/mmc1"
+SUBSYSTEM=="block", KERNEL=="mmcblk?p?", KERNELS=="mmc1", SYMLINK+="disk/mmc/mmc1p%n"
+
+SUBSYSTEM=="block", KERNEL=="mmcblk?", KERNELS=="mmc2", SYMLINK+="disk/mmc/mmc2"
+SUBSYSTEM=="block", KERNEL=="mmcblk?p?", KERNELS=="mmc2", SYMLINK+="disk/mmc/mmc2p%n"
+

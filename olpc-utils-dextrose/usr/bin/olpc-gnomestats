@@ -1,0 +1,110 @@
+#!/usr/bin/env python
+
+import gtk
+import wnck
+import logging
+import time
+import os.path
+
+logging_filename = os.path.join(os.path.expanduser("~"),
+                                ".olpc-gnome-stats")
+
+logging.basicConfig(filename=logging_filename, level=logging.INFO,
+                    format='%(message)s')
+
+class X11Sniffer(object):
+    def __init__(self):
+        self._screen = wnck.screen_get_default()
+        self._applications = {}
+        self._current_app = None
+        self._start_time = 0
+
+    def start(self):
+        self._screen.connect('window-opened', self._window_opened_cb)
+        self._screen.connect('window-closed', self._window_closed_cb)
+        self._screen.connect('active-window-changed',
+                self._active_window_changed_cb)
+
+    def stop(self):
+        self._screen.disconnect_by_func(self._window_opened_cb)
+        self._screen.disconnect_by_func(self._window_closed_cb)
+        self._screen.disconnect_by_func(self._active_window_changed_cb)
+
+    def update(self, stat_type, application):
+        current_time = time.time()
+        logging.info("%f %s %r" % (current_time, stat_type, application))
+
+    def _window_opened_cb(self, screen, window):
+        if window.get_window_type() == wnck.WINDOW_DESKTOP:
+            return
+
+        if window.get_window_type() != wnck.WINDOW_NORMAL:
+            return
+
+        app = window.get_application()
+        application = self._applications.get(app)
+        if application is None:
+            application = _Application(app)
+            self._applications[app] = application
+
+    def _window_closed_cb(self, screen, window):
+        if window.get_window_type() == wnck.WINDOW_DESKTOP:
+            return
+
+        if window.get_window_type() != wnck.WINDOW_NORMAL:
+            return
+
+        wnck_app = None
+        cur_application = None
+        xid = window.get_xid()
+        for app, application in self._applications.items():
+            if xid == application.window_xid:
+                wnck_app = app
+                cur_application = application
+                break
+
+        if cur_application is not None:
+            if not wnck_app.get_windows():
+                self.update("END", application)
+                del self._applications[wnck_app]
+
+    def _active_window_changed_cb(self, screen, previous_window=None):
+        window = screen.get_active_window()
+        if window is None:
+            return
+
+        if window.get_window_type() != wnck.WINDOW_DIALOG:
+            while window.get_transient() is not None:
+                window = window.get_transient()
+
+        app = window.get_application()
+        application = self._applications.get(app)
+        if application is not None:
+            if application.window_xid is None:
+                application.window_xid = window.get_xid()
+                self.update("START", application)
+
+            if self._current_app == application:
+                return
+
+            if self._current_app is not None:
+                self.update("DEACTIVATE", self._current_app)
+
+            self._current_app = application
+            self.update("ACTIVATE", application)
+
+
+class _Application(object):
+    def __init__(self, app):
+        self.app = app
+        self.app_name = app.get_name()
+        self.window_xid = None
+
+    def __repr__(self):
+        return "{0} {1}".format(self.window_xid, self.app_name)
+
+
+sniffer = X11Sniffer()
+sniffer.start()
+
+gtk.main()

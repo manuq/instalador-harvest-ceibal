@@ -1,0 +1,14 @@
+#%PAM-1.0
+# Not used, since olpc-dm doesn't trigger authentication
+auth       required    pam_env.so
+auth       required    pam_permit.so
+auth       include     system-auth
+
+account    include     system-auth
+
+password   include     system-auth
+
+# pam_console needed to create /var/run/console file, required for
+# dbus at_console check.
+session    optional    pam_console.so
+session    include     system-auth

@@ -1,0 +1,46 @@
+THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
+SHELL = /bin/bash
+
+include ./Makefile.package
+
+# Select build id.
+
+SNAPSHOT   := $(shell date +%Y%m%d)git$(shell git log | head -n1 | awk '{print substr($$2,0,6)}')
+
+ifeq (,$(findstring snapshot,$(MAKECMDGOALS)))
+  VERSION=$(COMPLETION)
+else
+  VERSION=$(COMPLETION).$(SNAPSHOT)
+endif
+
+NV    = $(PKGNAME)-$(VERSION)
+
+# Files.
+
+TARBALL    = $(NV).tar.bz2
+
+$(TARBALL):
+	git archive --format=tar --prefix=$(NV)/ HEAD | bzip2 > $(TARBALL)
+
+tarball: $(TARBALL)
+
+# Tags, Signatures, Lint, and Clean
+
+$(TARBALL).asc: $(TARBALL)
+	gpg -ab $<
+
+sign: $(TARBALL).asc
+
+.git/refs/tags/v$(COMPLETION):
+	git tag -s -m "Bump revision to $(COMPLETION)" v$(COMPLETION)
+
+tag: .git/refs/tags/v$(COMPLETION)
+
+# Snapshot and Release Rules
+
+snapshot release: tarball
+
+.PHONY: tarball sign tag snapshot release
+
+
+# vim: set noet ts=8 sw=8 :

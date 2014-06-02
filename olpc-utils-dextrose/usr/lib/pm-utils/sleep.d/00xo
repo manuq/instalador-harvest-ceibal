@@ -1,0 +1,11 @@
+#!/bin/bash
+# pm-utils/upower hook for OLPC XO
+# Turn display off while going into suspend, and turn it on when coming out
+case $1 in
+	suspend)
+		echo 1 > /sys/devices/platform/dcon/sleep
+		;;
+	resume)
+		echo 0 > /sys/devices/platform/dcon/sleep
+		;;
+esac

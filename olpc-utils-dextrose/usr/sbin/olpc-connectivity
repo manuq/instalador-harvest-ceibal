@@ -1,0 +1,179 @@
+#!/usr/bin/env python
+
+import os
+import sys
+import re
+import subprocess
+import socket
+import time
+import logging
+
+os.environ['LC_MESSAGES'] = 'C'
+
+logging_filename = "/home/olpc/.olpc-connectivity"
+
+logging.basicConfig(filename=logging_filename, level=logging.INFO,
+                    format='%(message)s')
+
+lock_socket = None
+
+PERIOD = 300  # five minutes
+
+def parse_wifi_interface(command_out):
+    lines = command_out.splitlines()
+    for line in lines:
+        if not ':' in line:
+            continue
+        return line.split(':')[0].strip()
+    return None
+
+def parse_iwconfig(command_out):
+    ap = re.search(r"Access Point: (\S+)", command_out)
+    if ap:
+        ap = ap.group(1)
+
+    sl = re.search(r"Signal level=(\S+)", command_out)
+    if sl:
+        sl = sl.group(1)
+
+    br = re.search(r"Bit Rate=(\S+)", command_out)
+    if br:
+        br = br.group(1)
+
+    ret = re.search(r"Tx excessive retries:(\S+)", command_out)
+    if ret:
+        ret = ret.group(1)
+
+    freq = re.search(r"Frequency:(\S+)", command_out)
+    if freq:
+        freq = freq.group(1)
+
+    return [ap, sl, br, ret, freq]
+
+def parse_ifconfig(command_out):
+    rx = re.search(r"RX packets (\S+)  bytes (\S+)", command_out)
+    if rx:
+        rx = rx.group(2)
+
+    tx = re.search(r"TX packets (\S+)  bytes (\S+)", command_out)
+    if tx:
+        tx = tx.group(2)
+
+    return [rx, tx]
+
+def get_wifi_interface():
+    out = subprocess.check_output(['cat', '/proc/net/wireless'])
+    return parse_wifi_interface(out)
+
+def get_iwconfig_info(wifi_interface):
+    out = subprocess.check_output(['iwconfig', wifi_interface])
+    return parse_iwconfig(out)
+
+def get_ifconfig_info(wifi_interface):
+    out = subprocess.check_output(['ifconfig', wifi_interface])
+    return parse_ifconfig(out)
+
+def log_wifi():
+    time_info = [int(time.time())]
+
+    wifi_interface = get_wifi_interface()
+    if wifi_interface is None:
+        info = time_info + ['NO_WIFI_INTERFACE']
+        logging.info("{0} {1}").format(*info)
+        return
+
+    iwconfig_info = get_iwconfig_info(wifi_interface)
+    if iwconfig_info[0] == 'Not-Associated':
+        info = time_info + ['NO_ACCESS_POINT']
+        logging.info("{0} {1}").format(*info)
+        return
+
+    ifconfig_info = get_ifconfig_info(wifi_interface)
+    info = time_info + iwconfig_info + ifconfig_info
+    logging.info("{0} {1} {2} {3} {4} {5} {6} {7}".format(*info))
+
+
+# run tests with:
+# ./olpc-connectivity test
+
+__test__ = dict(allem="""
+
+>>> out1 = 'Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE\\n' + \\
+...        ' face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22\\n' + \\
+...        'wlp2s0: 0000   70.  -39.  -256        0      0      0      8   1320        0\\n'
+
+>>> parse_wifi_interface(out1)
+'wlp2s0'
+
+>>> out1b = 'Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE\\n' + \\
+...         ' face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22\\n' + \\
+...         '  eth0: 0000   70.  -37.  -256        0      0      0      0      0        0\\n'
+
+>>> parse_wifi_interface(out1b)
+'eth0'
+
+>>> out1c = 'Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE\\n' + \\
+...         ' face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22\\n' + \\
+...         ' wlan0: 0000   70.  -40.  -256        0      0      0    160   1396        0\\n'
+
+>>> parse_wifi_interface(out1c)
+'wlan0'
+
+>>> out2 = 'wlp2s0    IEEE 802.11bgn  ESSID:"gatobus2"\\n' + \\
+...        '          Mode:Managed  Frequency:2.412 GHz  Access Point: 4C:72:B9:3C:4B:D3\\n' + \\
+...        '          Bit Rate=65 Mb/s   Tx-Power=16 dBm\\n' + \\
+...        '          Retry short limit:7   RTS thr:off   Fragment thr:off\\n' + \\
+...        '          Power Management:off\\n' + \\
+...        '          Link Quality=61/70  Signal level=-49 dBm\\n' + \\
+...        '          Rx invalid nwid:0  Rx invalid crypt:0  Rx invalid frag:0\\n' + \\
+...        '          Tx excessive retries:4  Invalid misc:259   Missed beacon:0\\n'
+
+>>> parse_iwconfig(out2)
+['4C:72:B9:3C:4B:D3', '-49', '65', '4', '2.412']
+
+>>> out3 = 'wlp2s0    IEEE 802.11bgn  ESSID:off/any  \\n' + \\
+...        '          Mode:Managed  Access Point: Not-Associated   Tx-Power=off   \\n' + \\
+...        '          Retry short limit:7   RTS thr:off   Fragment thr:off\\n' + \\
+...        '          Power Management:off\\n'
+
+>>> parse_iwconfig(out3)
+['Not-Associated', None, None, None, None]
+
+>>> out4 = 'wlp2s0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500\\n' + \\
+...        '        inet 192.168.0.12  netmask 255.255.255.0  broadcast 192.168.0.255\\n' + \\
+...        '        inet6 fe80::a617:31ff:fee9:936b  prefixlen 64  scopeid 0x20<link>\\n' + \\
+...        '        ether a4:17:31:e9:93:6b  txqueuelen 1000  (Ethernet)\\n' + \\
+...        '        RX packets 12320  bytes 3220936 (3.0 MiB)\\n' + \\
+...        '        RX errors 0  dropped 0  overruns 0  frame 0\\n' + \\
+...        '        TX packets 4915  bytes 1352429 (1.2 MiB)\\n' + \\
+...        '        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0\\n'
+
+>>> parse_ifconfig(out4)
+['3220936', '1352429']
+
+""")
+
+def test():
+    import doctest
+    doctest.testmod()#verbose=True)
+
+def get_lock():
+    global lock_socket
+    lock_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    try:
+        lock_socket.bind('\0' + 'olpc-connectivity')
+    except socket.error:
+        sys.exit()
+
+def main():
+    get_lock()
+    # logging.info(os.getpid())
+    while True:
+        log_wifi()
+        time.sleep(PERIOD)
+
+if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] == 'test':
+        test()
+    else:
+        main()

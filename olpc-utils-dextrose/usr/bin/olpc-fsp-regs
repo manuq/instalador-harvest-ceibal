@@ -1,0 +1,108 @@
+#!/bin/bash
+# Copyright 2011-2012 Sentelic Corporation
+# Copyright 2011-2012 One Laptop per Child Association
+#
+# Finger-sensing Pad init script for OLPC - to be called during
+# system init, or cmdline for diagnostics and debugging
+#
+# License: GPLv3
+
+set -e
+
+verify_register() {
+	regoff=$1;
+	shift
+	regval=$1;
+	echo 0x${regoff} > $FSP/getreg
+	val=$(<$FSP/getreg)
+	if [ $val != "${regoff}${regval}" ]; then
+		echo "unexpected readback for ${regoff}: $val" >&2
+	fi
+}
+
+read_register() {
+	regoff=$1;
+	shift
+	echo 0x${regoff} > $FSP/getreg
+	val=$(<$FSP/getreg)
+	echo -n ${val:2}
+}
+
+write_register() {
+	regoff=$1;
+	shift
+	regval=$1;
+	echo -n 0x${regoff} 0x${regval}> $FSP/setreg
+}
+
+# where's the AVC Sentelic FSP?
+FSP=$(grep -l 'FSPPS/2' /sys/bus/serio/drivers/psmouse/serio*/protocol | head -n1 | xargs --no-run-if-empty dirname)
+
+if [ -z "$FSP" ]; then
+	echo "Error: No FSP found" >&2
+	exit 1
+fi
+
+###
+### Registers to set
+###
+# 5F - Fix finger rolling, undo ebook jitter fix
+#      applies to 2F, 3F and 4F
+CONFIG_VERSION=6 # 6F
+REG[0]="45 21"
+REG[1]="64 63"
+REG[2]="65 63"
+REG[3]="6c a8"
+REG[4]="6d 8a"
+REG[5]="30 a0"
+REG[6]="42 e7"
+REG[7]="17 aa"
+REG[8]="48 a3"
+REG[9]="61 00"
+
+# This register identifies the config version burned
+# into the FSP at mfg.
+#
+# Configs earlier than 5F report 0x01.
+VERSION_REG="04"
+
+case "$1" in
+	version)
+		# switch to correct page
+		echo -n 0x82 > $FSP/page  
+		# The version is reported in octal
+		VERSION_IN_DEV=$(read_register $VERSION_REG)
+		VERSION_IN_DEV=$(printf '%d' \0x$VERSION_IN_DEV)
+		echo Version preloaded on FSP: $VERSION_IN_DEV
+		echo Version in $0: $CONFIG_VERSION
+		exit 0
+		;;
+	verify)
+		# switch to correct page
+		echo -n 0x82 > $FSP/page  
+		# verify all values without writing them
+		for R in "${REG[@]}"; do
+			verify_register $R
+		done
+		exit 0
+		;;
+	set)
+		# switch to correct page
+		echo -n 0x82 > $FSP/page
+		# The version is reported in octal
+		# but bash comparisons are int.
+		VERSION_IN_DEV=$(read_register $VERSION_REG)
+		VERSION_IN_DEV=$(printf '%d' \0x$VERSION_IN_DEV)
+		if [ $CONFIG_VERSION -gt $VERSION_IN_DEV ]; then
+			for R in "${REG[@]}"; do
+				write_register $R
+			done
+		fi
+		exit 0
+		;;
+
+	*)
+		echo "Unknown or missing parameter $1" >&2
+		exit 1
+		;;
+esac

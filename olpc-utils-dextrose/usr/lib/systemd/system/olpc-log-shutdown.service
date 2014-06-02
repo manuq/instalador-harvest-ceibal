@@ -1,0 +1,11 @@
+[Unit]
+Description=Log date and time before shutdown for statistics
+Before=systemd-poweroff.service systemd-reboot.service systemd-halt.service
+DefaultDependencies=no
+
+[Service]
+ExecStart=/usr/sbin/olpc-log-shutdown
+Type=oneshot
+
+[Install]
+WantedBy=poweroff.target halt.target reboot.target

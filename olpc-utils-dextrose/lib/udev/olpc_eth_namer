@@ -1,0 +1,15 @@
+#!/bin/bash
+# This script is called when the kernel wants to give the name 'eth0' to
+# a device that is not our internal wifi. We use a simple mechanism to find
+# a new name for that device, since eth0 is reserved.
+
+# Start at eth1 and give the first free slot
+idx=1
+while true; do
+	name=eth${idx}
+	if [ ! -e "/sys/class/net/${name}" ]; then
+		echo $name
+		exit 0
+	fi
+	(( idx++ ))
+done

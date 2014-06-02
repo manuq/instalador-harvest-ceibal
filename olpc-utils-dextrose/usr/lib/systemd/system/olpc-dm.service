@@ -1,0 +1,12 @@
+[Unit]
+Description=OLPC Display Manager
+Conflicts=getty@tty1.service
+After=systemd-user-sessions.service getty@tty1.service plymouth-quit.service
+
+[Service]
+ExecStart=/usr/sbin/olpc-dm
+Restart=always
+IgnoreSIGPIPE=no
+
+[Install]
+Alias=display-manager.service

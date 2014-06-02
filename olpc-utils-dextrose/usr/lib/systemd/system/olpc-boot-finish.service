@@ -1,0 +1,17 @@
+# Run at the end of the boot process, immediately before X is started.
+
+[Unit]
+Description=Finish OLPC boot process
+
+# Copy these from prefdm.service to ensure that we start late
+After=rc-local.service plymouth-start.service livesys-late.service systemd-user-sessions.service
+
+# We need to finish before starting X
+Before=display-manager.service plymouth-quit.service
+
+[Service]
+ExecStart=/usr/sbin/olpc-boot-finish
+Type=oneshot
+
+[Install]
+WantedBy=graphical.target

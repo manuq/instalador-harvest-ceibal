@@ -1,0 +1,60 @@
+# flags
+
+WARNFLAGS = \
+        -W -Wformat -Wall -Wundef -Wpointer-arith -Wcast-qual \
+        -Wcast-align -Wwrite-strings -Wsign-compare \
+        -Wmissing-noreturn \
+        -Wextra -Wstrict-aliasing=2 \
+        -Wunsafe-loop-optimizations
+
+# files
+
+BINARIES = usr/sbin/olpc-dm
+OVERLAYS = etc usr lib
+BUILT_DIRS= usr/sbin
+
+
+# default target
+
+all: $(BINARIES)
+
+
+# built works
+
+usr/sbin/olpc-dm: src/olpc-dm.c
+	mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -lpam -lpam_misc -o $@ $^
+
+
+# install targets
+
+$(DESTDIR)/usr/%: usr/%
+	install -D $< $@
+
+$(DESTDIR)/etc/%: etc/%
+	install -D -m 644 $< $@
+
+$(DESTDIR)/lib/udev/%: lib/udev/%
+	install -D -m 755 $< $@
+
+$(DESTDIR)/lib/udev/rules.d/%: lib/udev/rules.d/%
+	install -D -m 644 $< $@
+
+$(DESTDIR)/usr/lib/systemd/system/%: lib/systemd/system/%
+	install -D -m 644 $< $@
+
+# the above rules install files.  this expansion installs the directories.
+$(foreach d,$(shell find $(OVERLAYS) -type d),$(DESTDIR)/$d):
+	install -D -d $@
+
+install: $(BUILT_DIRS) $(BINARIES) $(foreach f,$(shell find $(OVERLAYS) -not -type d),$(DESTDIR)/$f)
+
+
+# clean target
+
+.PHONY: clean
+clean:
+	rm -f $(BINARIES) $(OBJS)
+	rm -rf $(BUILT_DIRS)
+
+# vim: noet sts=4 ts=4 sw=4 :

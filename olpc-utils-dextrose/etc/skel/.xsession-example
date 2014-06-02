@@ -1,0 +1,17 @@
+# Copy this file to ~/.xsession to customize your X session
+#
+# Contents of this file are preserved on updates because it lives in your $HOME
+# Check the master copy in /etc/skel/.xsession-example for updates
+#
+
+# To turn on debugging for Sugar components, see ~/.sugar/debug
+
+# Uncomment the following line to enable core dumps
+#ulimit -c unlimited
+
+# Uncomment the following line to debug sugar startup problems
+#exec xterm
+
+# If you drop out of this script, the normal olpc-session will proceed
+# Uncomment the following line to prevent it
+#exit 0

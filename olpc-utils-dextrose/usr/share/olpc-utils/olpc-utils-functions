@@ -1,0 +1,92 @@
+# Bash functions shared across olpc-utils utilities
+
+get_xo_version()
+{
+	XO_VERSION=;
+
+	if [ -e "/proc/device-tree/banner-name" ]
+	then
+		# requires new device-tree location
+		case "$(</proc/device-tree/banner-name)" in 
+			OLPC\ [BC][0-9])
+				XO_VERSION="1"
+				;;
+			OLPC\ D[0-9A-Z])
+				XO_VERSION="1.5"
+				;;
+			OLPC\ 1[ABC][0-9A-Z])
+				XO_VERSION="1.75"
+				;;
+			OLPC\ 2[ABC][0-9A-Z])
+				XO_VERSION="3"
+				;;
+			OLPC\ 3[ABC][0-9A-Z])
+				# early A1 proto boards
+				XO_VERSION="1.75"
+				;;
+			OLPC\ 4[ABC][0-9A-Z])
+				XO_VERSION="4"
+				;;
+		esac
+	elif [ -e "/sys/class/dmi/id/product_name" ]
+	then
+		# requires an OFW that runs setup-smbios at boot.
+		local name=$(</sys/class/dmi/id/product_name)
+		if [ "${name}" == "XO" ]; then
+			local version=$(</sys/class/dmi/id/product_version)
+			if [ "${version}" == "1" ]
+			then
+				XO_VERSION="1"
+			elif [ "${version}" == "1.5" ]
+			then
+				XO_VERSION="1.5"
+			fi
+		fi
+	elif [ -e "/ofw/banner-name" ]
+	then
+		# uses the old /ofw contents
+		case "$(</ofw/banner-name)" in 
+			OLPC\ [BC][1-9]*)
+				XO_VERSION="1"
+				;;
+		esac
+	fi
+
+	echo $XO_VERSION
+}
+
+
+get_xo_mfg_tag()
+{
+	tag="$1"
+	if [ -d /proc/device-tree/mfg-data ]
+	then
+		mfgdata=/proc/device-tree/mfg-data
+	elif [ -d /ofw/mfg-data ]
+	then
+		mfgdata=/ofw/mfg-data
+	else
+		return 1
+	fi
+
+	test -e $mfgdata/$tag || return 1
+
+	echo $(< $mfgdata/$tag)
+}
+
+# Work around for typo in Ethiopian mfg-data
+# http://dev.laptop.org/ticket/6945#comment:16
+get_xo_mfg_tag_stripspaces() {
+	get_xo_mfg_tag $1 | tr -d '[:space:]' | tr -d '\000' 2>/dev/null
+}
+
+get_ofw_file()
+{
+	fpath=$1
+	if [ -e "/proc/device-tree/$fpath" ]
+	then
+		cat "/proc/device-tree/$fpath"	2>/dev/null
+	else
+		cat "/ofw/$fpath"  2>/dev/null
+	fi
+}

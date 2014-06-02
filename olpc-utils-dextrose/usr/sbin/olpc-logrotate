@@ -1,0 +1,3 @@
+#!/bin/sh
+echo "Log file reached max size, rotating..." >> /var/log/messages
+/bin/mv /var/log/messages /var/log/messages.1

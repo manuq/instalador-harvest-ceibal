@@ -1,0 +1,218 @@
+#!/bin/bash
+#
+# Copyright (C) 2007-2009  OLPC
+# Author: Bernardo Innocenti <bernie@codewiz.org>
+# Author: John (J5) Palmieri <johnp@redhat.com>
+# Author: Daniel Drake <dsd@laptop.org>
+# Author: Martin Langhoff <martin@laptop.org>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+shopt -s nullglob
+source /usr/share/olpc-utils/olpc-utils-functions
+
+cchmod()
+{
+	# conservative chmod
+	# stats to save a write
+	# (chmod internally does stat too but does not skip the write)
+	# Usage: cchmod $OCTALMODE $PATH
+	local M=$1
+	local P=$2
+	[ `stat -c '%a' "$P"` -ne $M ] && chmod $M "$P"
+}
+
+maybe_fix_gnome_panel()
+{
+	# Reset gnome panels if we are missing systray (battery monitor,
+	# nm-applet), window_list or the default menu_bar. It is safe to move
+	# them around.
+	local req_value
+	for req_value in "applet_id_list systray" "applet_id_list window_list" "object_id_list menu_bar"; do
+		set -- $req_value
+		local gconf_key="/apps/panel/general/"$1
+		local gconf_value=$2
+		if ! /usr/bin/gconftool-2 -g $gconf_key | grep -q $gconf_value; then
+			/usr/bin/gconftool-2 --recursive-unset /apps/panel
+			break
+		fi
+	done
+}
+
+maybe_fix_gnome_fonts()
+{
+	# Reset font sizes if they have been mangled so much that they cannot be
+	# set back straight
+	local KEY V FSIZE FNAME
+	local regex="(.*) ([0-9]+)"
+	local KEYS="/apps/nautilus/preferences/desktop_font
+/apps/metacity/general/titlebar_font
+/desktop/gnome/interface/document_font_name
+/desktop/gnome/interface/font_name
+/desktop/gnome/interface/monospace_font_name
+"
+	for KEY in $KEYS; do
+		V=`/usr/bin/gconftool-2 -g "$KEY"`
+		[[ "$V" =~ $regex ]] || continue
+		FNAME=${BASH_REMATCH[1]}
+		FSIZE=${BASH_REMATCH[2]}
+		[ $FSIZE -gt 20 -o $FSIZE -lt 4 ] && /usr/bin/gconftool-2 -u "$KEY"
+	done
+}
+
+export SUGAR_SCALING=100
+
+# We need to read this early (dlo #9543)
+[ -f "$HOME/.sugar/debug" ] && . "$HOME/.sugar/debug"
+
+# enable python optimized bytecode if the files are present (#8431)
+# do this early too, so that the environment is set up for the dbus session
+if [ -e /usr/lib/python2.?/subprocess.pyo ]; then
+	export PYTHONOPTIMIZE=2
+fi
+
+# reset touchpad rotation -- which may be set after an X server respawn
+olpc-rotate -r
+
+# equivalent of /etc/X11/xinit/xinitrc-common without xmodmap or xrdb nonsense
+[ -r /etc/profile.d/lang.sh ] && . /etc/profile.d/lang.sh
+for file in /etc/X11/xinit/xinitrc.d/* ; do
+	. $file
+done
+
+# provide some defaults
+LANG=${LANG:-en_US.UTF-8}
+
+# Enable the on-screen keyboard when found (uses nullglob)
+maliit_module=/usr/lib/gtk-*/*/immodules/libim-maliit.so
+[ -n "$maliit_module" ] && \
+	export GTK_IM_MODULE=Maliit
+
+# Use the XIM module for keyboards where we want to use Compose tables
+if [ $LANG = "am_ET.UTF-8" -o $LANG = "ne_NP.UTF-8" ]; then
+	export GTK_IM_MODULE="xim"
+fi
+
+# load keyboard settings
+[ -f "/etc/sysconfig/keyboard" ] && . "/etc/sysconfig/keyboard"
+[ -f "$HOME/.kbd" ] && . "$HOME/.kbd"
+
+XO_VERSION=$(get_xo_version)
+if [ "$XO_VERSION" == "1" ]; then
+	# XO-1 only: set mouse & keyboard speed
+	xset m 7/4 1
+	xset r rate 500 30
+fi
+
+# disable repeat on several keys
+xset -r 9 -r 220  -r 67 -r 68 -r 69 -r 70 -r 71 -r 72 -r 73 -r 74 -r 79 -r \
+	81 -r 87 -r 89 -r 95 -r 96 -r 224 -r 147 -r 49 -r 10 -r 11 -r 12 -r 13 -r 14 -r \
+	15 -r 16 -r 17 -r 18 -r 19 -r 20 -r 21 -r 23 -r 24 -r 25 -r 26 -r 27 -r 28 -r \
+	29 -r 30 -r 31 -r 32 -r 33 -r 34 -r 35 -r 36 -r 37 -r 38 -r 39 -r 40 -r 41 -r 42 -r \
+	43 -r 44 -r 45 -r 46 -r 47 -r 48 -r 51 -r 52 -r 53 -r 54 -r 55 -r 56 -r 57 -r \
+	58 -r 59 -r 60 -r 61 -r 62 -r 219 -r 112 -r 110 -r 117 -r 115 -r 96  -r 221 -r \
+	225 -r 236 -r 217 -r 218 -r 219 -r 220 -r 221 -r 191 -r 192 -r 193 -r 222 -r \
+	223 -r 224 -r 225 -r 194 -r 195 -r 196 -r 226 -r 227 -r 228 -r 229 -r 197 -r \
+	198 -r 199 -r 156 -r 235
+
+
+# put Switch-to-sugar icon in place
+install_switch_desktop_icon()
+{
+	local desktopdir=$(xdg-user-dir DESKTOP)
+	[ ! -e "/usr/share/applications/olpc-switch-to-sugar.desktop" ] || \
+		[ -e "${desktopdir}/olpc-switch-to-sugar.desktop" ] && return
+	cp -f /usr/share/applications/olpc-switch-to-sugar.desktop \
+		"${desktopdir}"
+	chmod 755 "${desktopdir}"/olpc-switch-to-sugar.desktop
+}
+
+#Ceibal
+install_epiphany_icon()
+{
+	local desktopdir=$(xdg-user-dir DESKTOP)
+	[ ! -e "/usr/share/applications/epiphany.desktop" ] || \
+		[ -e "${desktopdir}/epiphany.desktop" ] && return
+	cp -f /usr/share/applications/epiphany.desktop \
+		"${desktopdir}"
+	chmod 755 "${desktopdir}"/epiphany.desktop
+}
+
+
+# Desktop selection
+desktop=sugar
+if [ -e "$HOME/.olpc-active-desktop" ]; then
+	active=$(<$HOME/.olpc-active-desktop)
+	if [ "${active}" == "gnome" ]; then
+		desktop=gnome-session
+		install_switch_desktop_icon
+		install_epiphany_icon
+	fi
+fi
+
+# source custom user session, if present
+[ -f "$HOME/.xsession" ] && . "$HOME/.xsession"
+
+# useful for performance work
+mv $HOME/.boot_time $HOME/.boot_time.prev 2>/dev/null
+cat /proc/uptime >$HOME/.boot_time
+
+if [ "$desktop" = "sugar" ]
+then
+	## Sugar
+	printf '%(%s)T START_SUGAR\n' -1 >> $HOME/.olpc-launch-stats
+
+	## If .rfkill_block_wifi exists, ensure it is blocked
+	## (we may have unblocked it for gnome) #10532
+	[ -e $HOME/.rfkill_block_wifi ] && /sbin/rfkill block wifi
+
+	# prep ~/Activities
+	cchmod 0755 $HOME/Activities
+else
+	## Non-Sugar Desktop
+	printf '%(%s)T START_GNOME\n' -1 >> $HOME/.olpc-launch-stats
+
+	## GNOME should be able to switch on wifi #10532
+	if [ -e $HOME/.rfkill_block_wifi ]; then
+		# tell NM wifi should be down
+		/bin/dbus-send --system --print-reply \
+			--dest='org.freedesktop.NetworkManager' /org/freedesktop/NetworkManager \
+			org.freedesktop.DBus.Properties.Set string:org.freedesktop.NetworkManager \
+			string:WirelessEnabled variant:boolean:false
+		# unblock wifi so NM can bring it up
+		/sbin/rfkill unblock wifi
+	fi
+
+	# protect ~/Activities
+	cchmod 0000 $HOME/Activities
+	# hide some dir entries
+	for DENT in 'Activities' 'power-logs'; do
+		grep -q $DENT $HOME/.hidden || echo $DENT >> $HOME/.hidden
+	done
+
+	maybe_fix_gnome_panel
+	maybe_fix_gnome_fonts
+
+	# unfreeze the DCON for non-sugar environments
+	# (sugar unfreezes the dcon itself at an appropriate time)
+	# note: --print-reply should not be necessary, but works around a long-term
+	# bug where dbus-send can occasionally lose messages:
+	# http://marc.info/?l=freedesktop-dbus&m=120662577224073&w=2
+	dbus-send --print-reply --system --dest=org.freedesktop.ohm \
+		/org/freedesktop/ohm/Keystore org.freedesktop.ohm.Keystore.SetKey \
+	string:display.dcon_freeze int32:0 &
+fi
+
+exec $desktop

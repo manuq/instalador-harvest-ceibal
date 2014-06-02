@@ -1,0 +1,20 @@
+# systemd often shuts down ultra-fast. Sometimes it does this while the
+# splash screeen is only half-drawn (http://bugs.freedesktop.org/50544),
+# and sometimes it is fully drawn but the shutdown is so fast that the
+# user doesn't have time to look at it.
+#
+# This unit adds a delay after the shutdown splash is shown, ensuring that
+# it gets fully drawn and that the user has time to look at it.
+
+[Unit]
+Description=Delay shutdown while showing plymouth shutdown splash
+After=plymouth-poweroff.service plymouth-reboot.service plymouth-halt.service
+Before=systemd-poweroff.service systemd-reboot.service systemd-halt.service
+DefaultDependencies=no
+
+[Service]
+ExecStart=/usr/bin/sleep 8
+Type=oneshot
+
+[Install]
+WantedBy=poweroff.target halt.target reboot.target

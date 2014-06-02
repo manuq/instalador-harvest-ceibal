@@ -168,23 +168,34 @@ def backup_files():
     if os.path.exists(HARVEST_CPSECTION_DIR):
         copy_tree(HARVEST_CPSECTION_DIR, "/", BACKUP_DIR)
 
-def copy_files():
-    logging.info("Copiando archivos...")
+def copy_olpc_utils():
+    utils_dir = None
+    if is_dextrose:
+        utils_dir = "olpc-utils-dextrose"
+    else:
+        utils_dir = "olpc-utils"
     for dest in OLPC_UTILS_FILES:
-        src = os.path.join("olpc-utils", os.path.relpath(dest, "/"))
+        src = os.path.join(utils_dir, os.path.relpath(dest, "/"))
         mkdir_p(os.path.dirname(dest))
         shutil.copy(src, dest)
 
-    src = os.path.join("src", system_version[0], "ALL/sugar-toolkit-gtk3/sugar3/activity/activity.py")
+    os.chmod("/etc/NetworkManager/dispatcher.d/22-log-connectivity", 0755)
+
+def copy_sugar3():
+    src = os.path.join("src", system_version[0],
+                       "ALL/sugar-toolkit-gtk3/sugar3/activity/activity.py")
     dest = SUGAR3_FILES[0]
     mkdir_p(os.path.dirname(dest))
     shutil.copy(src, dest)
 
-    src = os.path.join("src", system_version[0], "ALL/sugar-toolkit/sugar/activity/activity.py")
+def copy_sugar():
+    src = os.path.join("src", system_version[0],
+                       "ALL/sugar-toolkit/sugar/activity/activity.py")
     dest = SUGAR_FILES[0]
     mkdir_p(os.path.dirname(dest))
     shutil.copy(src, dest)
 
+def copy_harvest_client():
     dest_dir = "/usr/share/sugar/extensions/"
     src_path = os.path.join("harvest-client", "extensions")
     copy_tree(src_path, src_path, dest_dir)
@@ -195,7 +206,13 @@ def copy_files():
     shutil.copy(src, dest)
 
     os.chmod("/etc/NetworkManager/dispatcher.d/harvest-collect-ifup", 0755)
-    os.chmod("/etc/NetworkManager/dispatcher.d/22-log-connectivity", 0755)
+
+def copy_files():
+    logging.info("Copiando archivos...")
+    copy_olpc_utils()
+    # copy_sugar3()
+    # copy_sugar()
+    # copy_harvest_client()
 
 def restore_files():
     if not os.path.exists(BACKUP_DIR):
@@ -267,8 +284,8 @@ def install():
     logging.info("Comienza la instalación...")
     get_system_version()
     install_rpms()
-    # backup_files()
-    # copy_files()
+    backup_files()
+    copy_files()
     # configure_harvest()
     # print("Reinicie y corra: harvest-ceibal postinstall")
     logging.info("FIN")
@@ -281,10 +298,10 @@ def postinstall():
 def remove():
     logging.info("Comienza la desinstalación...")
     get_system_version()
-    remove_rpms()
     # disable_services()
-    # remove_files()
-    # restore_files()
+    remove_files()
+    restore_files()
+    remove_rpms()
     logging.info("FIN")
 
 

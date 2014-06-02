@@ -1,0 +1,53 @@
+#!/bin/bash
+# OLPC mouse configuration
+
+# Fork to another process to not block udev
+(
+
+mouse_dev_path=/sys/$DEVPATH
+input_dev_path=$mouse_dev_path/..
+input_layer_path=$input_dev_path/..
+serio_dev_path=$input_layer_path/..
+
+protocol_path=$serio_dev_path/protocol
+[ -e $protocol_path ] || exit 0
+protocol=$(<$serio_dev_path/protocol)
+
+# The hgpk driver for the "old" ALPS touchpads has a means of switching
+# between capacitive "finger" mode and stylus-only tablet mode. Make it
+# possible for the user to switch it back and forth.
+hgpk_mode=$serio_dev_path/hgpk_mode
+[ -e "$hgpk_mode" ] && chmod a+rw $hgpk_mode
+
+# For AVC touchpads, disable tap-to-click and extra scrolling areas, and
+# apply a custom register configuration.
+if [ "$protocol" = "FSPPS/2" ]; then
+	logger -t olpc_mouse_setup "Configuring AVC touchpad"
+	# disable tap-to-click and extra scrolling areas
+	if [ -e $serio_dev_path/vscroll ]; then
+		echo -n 0 > $serio_dev_path/vscroll
+		echo -n 0 > $serio_dev_path/hscroll
+		echo -n c > $serio_dev_path/flags
+	fi
+	exec /usr/bin/olpc-fsp-regs set
+fi
+
+# If the Synaptics touchpad is already running in relative mode, we have
+# nothing to do.
+if [ "$protocol" = "SynRelPS/2" ]; then
+	exit 0
+fi
+
+# Switch Synaptics touchpads into relative mode. This disables tap-to-click
+# by default and plays nice with our EC.
+input_name_path=$input_dev_path/name
+if [ -e $input_name_path ]; then
+	input_name=$(<$input_dev_path/name)
+	if [[ $input_name == *Synaptics* ]]; then
+		logger -t olpc_mouse_setup \
+			"Switching Synaptics touchpad to relative mode"
+		echo -n "SynRelPS/2" > $protocol_path
+	fi
+fi
+
+) &

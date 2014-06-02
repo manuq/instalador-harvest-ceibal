@@ -1,0 +1,4 @@
+#!/bin/bash
+
+OLPC_HOME=/home/olpc
+printf '%(%s)T END\n' -1 >> $OLPC_HOME/.olpc-launch-stats

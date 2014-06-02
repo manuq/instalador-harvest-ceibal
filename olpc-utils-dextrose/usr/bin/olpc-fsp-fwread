@@ -1,0 +1,198 @@
+#!/usr/bin/python
+#-*- coding: utf-8 -*-
+#
+# Copyright (c) 2012 Tai-hwa Liang, Sentelic Corporation.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer,
+#    without modification.
+# 2. Redistributions in binary form must reproduce at minimum a disclaimer
+#    similar to the "NO WARRANTY" disclaimer below ("Disclaimer") and any
+#    redistribution must be conditioned upon including a substantially
+#    similar Disclaimer requirement for further binary redistribution.
+# 3. Neither the names of the above-listed copyright holders nor the names
+#    of any contributors may be used to endorse or promote products derived
+#    from this software without specific prior written permission.
+#
+# Alternatively, this software may be distributed under the terms of the
+# GNU General Public License ("GPL") version 2 as published by the Free
+# Software Foundation.
+#
+# NO WARRANTY
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+# ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF NONINFRINGEMENT, MERCHANTIBILITY
+# AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
+# THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY,
+# OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+# IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+# THE POSSIBILITY OF SUCH DAMAGES.
+#
+# $Id: otp-read.py 62088 2012-01-10 09:41:46Z avatar $
+#
+
+#
+# Utility to compare all OTP bytes amongst different pages found on the
+# Sentelic Finger Sensing Pad
+#
+
+import os
+import sys
+
+# Program revision
+__version__ = 'FSP OTP Reader for Linux v0.1 $Rev: 62088 $'
+
+# FSP OTP reading class
+class FSPOTP:
+
+    def __init__(self):
+        self.DEBUG = False
+        for dname, dnames, fnames in os.walk(r'/sys/bus/serio/drivers/psmouse'):
+            for subdir in dnames:
+                SYS_PATH = os.path.join(dname, subdir)
+                if os.path.exists(os.path.join(SYS_PATH, 'getreg')):
+                    self.GET_REG = os.path.join(SYS_PATH, 'getreg')
+                    self.SET_REG = os.path.join(SYS_PATH, 'setreg')
+                    self.PAGE = os.path.join(SYS_PATH, 'page')
+                    print "Got FSP at", SYS_PATH
+                    return	# got FSP sysfs control path
+        print "Error: unable to locate FSP."
+        sys.exit(1)
+
+    def __enable_otp_reading(self, en):
+        try:
+            open(self.PAGE, 'w').write('0x84')
+            fd = open(self.GET_REG, 'r+')
+            fd.write('00')
+            val = int(fd.read(), 16) & 0xff
+            fd.close()
+            # read enable
+            if en:
+                val |= 0x01
+            else:
+                val &= ~0x01
+            open(self.SET_REG, 'w').write('00 %02x' % val)
+        except:
+            print "Error: Failed to update register file at %s" % self.SET_REG
+            sys.exit(1)
+
+    def readPage(self, page):
+        # switch to the target page
+        if page == 0:
+            open(self.PAGE, 'w').write('0x90')
+            start_off = 0x00
+        elif page == 1:
+            open(self.PAGE, 'w').write('0x90')
+            start_off = 0x80
+        elif page == 2:
+            open(self.PAGE, 'w').write('0x91')
+            start_off = 0x00
+        else:
+            print "Error: unexpected page offset:" % page
+            sys.exit(1)
+
+        result = dict()
+        # start reading the full content
+        for i in xrange(start_off, start_off + 128):
+            fd = open(self.GET_REG, 'r+')
+            fd.write('%02x' % i)
+            val = int(fd.read(), 16) & 0xff
+            fd.close()
+            result[i - start_off] = val
+        return result
+
+    def disable(self):
+        self.__enable_otp_reading(False)
+
+    def enable(self):
+        self.__enable_otp_reading(True)
+
+    def printResult(self, result):
+        current_page = 0x82
+        for i in xrange(0, len(result), 2):
+            if result[i] == 0xff:
+                if result[i + 1] != 0xff:
+                    current_page = result[i + 1]	# page switched
+                continue
+            if self.DEBUG:
+                print '#%03d: 0x%02x%02x = 0x%02x' % (i, current_page, result[i], result[i + 1])
+            else:
+                print '0x%02x%02x = 0x%02x' % (current_page, result[i], result[i + 1])
+
+    def enableDebug(self, en):
+        self.DEBUG = en
+
+    def dbg(self, msg):
+        if self.DEBUG:
+            print msg
+
+    def verifyAllPages(self):
+        self.dbg('Reading OTP page 0...')
+        page0 = self.readPage(0)
+        self.dbg('Reading OTP page 1...')
+        page1 = self.readPage(1)
+        self.dbg('Reading OTP page 2...')
+        page2 = self.readPage(2)
+
+        if page0 != page1 or page1 != page2:
+            self.dbg('Error: OTP page mismatch.')
+            self.dbg('page0: {%s}' % ', '.join(['%02x: %02x' % (k,v) for k,v in page0.items()]))
+            self.dbg('page1: {%s}' % ', '.join(['%02x: %02x' % (k,v) for k,v in page1.items()]))
+            self.dbg('page2: {%s}' % ', '.join(['%02x: %02x' % (k,v) for k,v in page2.items()]))
+            ret = False
+        else:
+            self.dbg('All OTP pages are identical.')
+            ret = True
+
+        return (ret, page0, page1, page2)
+
+
+if __name__ == '__main__':
+
+    if '-version' in sys.argv or '-v' in sys.argv:
+        print __version__
+        sys.exit(0)
+
+    if '-help' in sys.argv or '-h' in sys.argv:
+        print 'Usage: %s [options]...' % os.path.basename(sys.argv[0])
+        print '\nOptions:'
+        print '\t-help\t\tWhat do you think you\'re looking at!?'
+        print '\t-version\tShow the version of this utility.'
+        print '\t-debug\t\tEnable more debugging message.'
+        print '\t-verify\t\tRead all OTP pages and compare them with each other.'
+        print '\n(The first OTP page will be listed by default if there\'s no given options.)\n'
+        sys.exit(0)
+
+    if os.geteuid():
+        print "You have to run the script as root!"
+        os._exit(1)
+
+    otp = FSPOTP()
+
+    if '-debug' in sys.argv or '-d' in sys.argv:
+        otp.enableDebug(True)
+
+    otp.enable()
+
+    if '-verify' in sys.argv:
+        ret, page0, page1, page2 = otp.verifyAllPages()
+        if ret:
+            print 'Verification completed. No mismatch was found.'
+        else:
+            print 'Verification failed.'
+            print 'page0:', page0
+            print 'page1:', page1
+            print 'page2:', page2
+    else:
+        # dump the first page by default
+        page0 = otp.readPage(0)
+        otp.printResult(page0)
+
+    otp.disable()

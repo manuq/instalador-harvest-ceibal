@@ -1,0 +1,430 @@
+#!/bin/bash
+shopt -s nullglob
+
+# Bump this version each time compatibility gets broken in ways that require
+# regenerating the configuration files
+OLPC_CONFIGURE_VERSION=21
+
+OLPC_HOME=/home/olpc
+XO_VERSION=0
+
+source /usr/share/olpc-utils/olpc-utils-functions
+
+configure_hw_1_0() {
+	# load alsa configuration here since doing it at module load time wasn't working
+	/usr/sbin/alsactl restore
+
+	# workaround activities lowering PCM level
+	amixer -q sset PCM "90%" unmute
+	amixer -q sset 'Capture' '100%'
+
+	# Libertas Marvell LED configuration
+	# map LED1 to GPIO1, LED2 to GPIO12, LED3 to GPIO16
+	/sbin/iwpriv eth0 ledgpio 1 1 2 12 3 16 > /dev/null
+
+	if [ -x /sbin/rfkill -a -e $OLPC_HOME/.rfkill_block_wifi ]
+	then
+	    /sbin/rfkill block wifi
+	fi
+}
+
+configure_hw_1_5() {
+	amixer -q sset Master -- "-10.0dB"
+	amixer -q sset PCM "100%"
+	amixer -q sset "DC Input Bias" Off
+	amixer -q sset "DC Mode Enable" mute
+	amixer -q sset 'Analog Mic Boost' '30dB'
+	amixer -q sset 'Capture' '100%' cap
+
+	if [ -x /sbin/rfkill -a -e $OLPC_HOME/.rfkill_block_wifi ]
+	then
+	    /sbin/rfkill block wifi
+	fi
+}
+
+configure_hw_1_75() {
+
+	# open permissions on the OLS 'ceiling' node, so activities
+	# that want to get light sensor readings can raise it.
+	# of course, after raising it, it would be really nice if
+	# activities would then lower it to 0 again when they're done.
+	# it's not critical -- mainly it just keeps the storage LED from
+	# working properly while the ceiling is raised.
+	ols_device=$(grep -l 'OLPC OLS notify' /sys/class/input/input*/name)
+	ols_device=${ols_device%/name}
+	ceiling=$ols_device/device/ceiling
+	chmod a+w $ceiling
+
+}
+
+configure_hw_4() {
+	# for now, identical
+	configure_hw_1_75
+}
+
+configure_hw() {
+	echo "olpc-configure: configuring hardware..."
+
+	if [ "${XO_VERSION}" == "1.5" ] ; then
+		configure_hw_1_5
+        elif  [ "${XO_VERSION}" == "1.75" ] ; then
+		configure_hw_1_75
+	elif [ "${XO_VERSION}" == "4" ] ; then
+		configure_hw_4
+	else
+		configure_hw_1_0
+	fi
+}
+
+read_nvram() {
+	dd if=/dev/nvram bs=1 skip=$(($1)) count=$2 2>/dev/null
+}
+
+read_config() {
+	# already been run?
+	[ -n "$XKBMODEL" ] && return 0
+
+	# Some defaults
+	XKBMODEL="olpc"
+	XKBLAYOUT="us"
+	SYS_LANG="en_US.UTF-8"
+
+	[ "${XO_VERSION}" == "0" ] && return
+
+	# test if we can get mfg data reading it
+	local KM=`get_xo_mfg_tag KM`
+	if [ -n "$KM" ]; then
+		XKBMODEL="$KM"
+		XKBLAYOUT="`get_xo_mfg_tag_stripspaces KL`"
+		XKBVARIANT="`get_xo_mfg_tag KV`"
+		SYS_LANG="`get_xo_mfg_tag LO`"
+		if [ "$XKBLAYOUT" = "en" ] ; then
+			# Some units have invalid KL 'en' tags (e.g. SKU104, #10711)
+			XKBLAYOUT="us"
+		fi
+		if [ "$SYS_LANG" = "es_MX.UTF-8" \
+                     -a "$XKBLAYOUT" = "us" \
+                     -a "$XKBVARIANT" = "olpc" ] ; then
+			# We have some XO-1 machines in Peru with US(Intl) membrane keyboards
+			# and they need some modifications to the standard layout
+			# See http://dev.laptop.org/ticket/9126
+			XKBLAYOUT="es"
+			XKBVARIANT="olpc2"
+		fi
+	elif [ "${XO_VERSION}" == "1" ] ; then
+		KB_HEADER=`read_nvram 0x44 2`
+		if [ "x$KB_HEADER" = "xKB" ] ; then
+			KB_CODE=`read_nvram 0x46 10`
+			if [ "x$KB_CODE" = "xus_INTL" ] ; then
+				XKBLAYOUT="us"
+			elif [ "x$KB_CODE" = "xes" ] ; then
+				XKBLAYOUT="es"
+				SYS_LANG="es_AR.UTF-8"
+			elif [ "x$KB_CODE" = "xpt_BR" ] ; then
+				XKBLAYOUT="br"
+				SYS_LANG="pt_BR.UTF-8"
+			elif [ "x$KB_CODE" = "xara" ] ; then
+				XKBLAYOUT="us(olpc2),ara(olpc)"
+				SYS_LANG="ar_LY.UTF-8"
+			elif [ "x$KB_CODE" = "xth" ] ; then
+				XKBLAYOUT="us(olpc2),th(olpc)"
+				SYS_LANG="th_TH.UTF-8"
+			elif [ "x$KB_CODE" = "xng" ] ; then
+				XKBLAYOUT="ng(olpc)"
+			elif [ "x$KB_CODE" = "xpk" ] ; then
+				XKBLAYOUT="us(olpc2),ur(olpc)"
+				SYS_LANG="ur_PK.UTF-8"
+			elif [ "x$KB_CODE" = "xet" ] ; then
+				XKBLAYOUT="us(olpc2),et"
+				SYS_LANG="am_ET.UTF-8"
+			fi
+		fi
+	fi
+
+	# Allow mfg data to be overridden by hardcoded build defaults
+	[ -e /etc/olpc-configure/default-language ] && \
+		SYS_LANG=$(</etc/olpc-configure/default-language)
+	[ -e /etc/olpc-configure/default-kbd-model ] && \
+		XKBMODEL=$(</etc/olpc-configure/default-kbd-model)
+	[ -e /etc/olpc-configure/default-kbd-variant ] && \
+		XKBVARIANT=$(</etc/olpc-configure/default-kbd-variant)
+	[ -e /etc/olpc-configure/default-kbd-layout ] && \
+		XKBLAYOUT=$(</etc/olpc-configure/default-kbd-layout)
+
+	if [ "$XKBMODEL" = "olpc2" ]; then
+		# early mfg units of 1.5HS were programmed with KM and KV
+		# both set to "olpc2".  they should have been "olpcm"/"olpc"
+		XKBMODEL="olpcm"
+		test "$XKBVARIANT" = "olpc2" && XKBVARIANT="olpc"
+	fi
+	if ! locale -a | grep -qx "${SYS_LANG/UTF-8/utf8}"; then
+	    echo "olpc-configure: Locale $SYS_LANG is not supported;"
+	    SYS_LANG="en_US.UTF-8"  # better fallback than "C"
+	    echo "olpc-configure: Falling back to locale $SYS_LANG"
+	fi
+}
+
+# see dev.laptop.org trac #6432 for use case and spec.
+install_customization_packages () {
+	# we'd like to look on USB/SD here, but udev/sugar hasn't mounted
+	# them yet =(
+	for pkgdir in $OLPC_HOME/.custom/rpms ; do # other paths?
+		if [ ! -d "$pkgdir" ]; then continue; fi
+		pkgs=$(find "$pkgdir" -name '*.rpm' -a ! -name '*.src.rpm' )
+		if [ -n "$pkgs" ]; then
+			echo '* olpc-configure: Installing customization packages:'
+			echo "$pkgs"
+			rpm -Uvh $pkgs
+		fi
+		unset pkgs
+	done
+	unset pkgdir
+}
+
+# configurations which happen in /home
+# these don't need to be repeated when we upgrade.
+configure_home() {
+	echo "olpc-configure: reconfiguring home..."
+	read_config
+	chmod 700 $OLPC_HOME
+
+	# Don't clobber .i18n if it exists, because Sugar writes its settings
+	# here.
+	if ! [ -e $OLPC_HOME/.i18n ]; then
+		echo "LANG=\"$SYS_LANG\"" > $OLPC_HOME/.i18n
+		chown olpc:olpc $OLPC_HOME/.i18n
+	fi
+
+	# can't live in $OLPC_HOME because activities can't read this dir.
+	SERNUM="`get_xo_mfg_tag SN`"
+	UUID="`get_xo_mfg_tag U#`"
+	if [ -e /etc/olpc-configure/devkey.html ];then
+	    sed -e "s/REPLACE_WITH_SERIALNUMBER/$SERNUM/" \
+		-e "s/REPLACE_WITH_UUID/$UUID/" > /home/.devkey.html.tmp < /etc/olpc-configure/devkey.html
+	else
+	    sed -e "s/REPLACE_WITH_SERIALNUMBER/$SERNUM/" \
+		-e "s/REPLACE_WITH_UUID/$UUID/" > /home/.devkey.html.tmp <<__EOF__
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+        "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<title>Developer key request</title>
+<style type="text/css" media="all">@import "https://activation.laptop.org/devkey/stylesheet/";</style>
+</head>
+<body>
+<iframe src="https://activation.laptop.org/devkey/content/"
+        width="100%" height="450" >
+<p>Use the button below to request a developer key for your
+        machine.</p>
+</iframe>
+<form action="https://activation.laptop.org/devkey/post/"
+        method="post" id="devkeyform" >
+<input type="hidden" name="serialnum" value="REPLACE_WITH_SERIALNUMBER" />
+<input type="hidden" name="uuid" value="REPLACE_WITH_UUID" />
+<input type="submit" />
+</form>
+</body>
+</html>
+__EOF__
+	fi
+	chmod a+r,a-w /home/.devkey.html.tmp
+	mv /home/.devkey.html.tmp /home/.devkey.html
+
+	# ensure /home/root exists (#6700)
+	mkdir -p /home/root
+	chmod 750 /home/root
+
+	# version 11: switch from batterymon to batti (#10436)
+	rm -f /home/olpc/.config/autostart/batterymon.desktop
+
+	# version 12: create default unencrypted keyring (#10290)
+	if [ ! -e /home/olpc/.gnome2/keyrings/default.keyring ]; then
+		mkdir -p /home/olpc/.gnome2/keyrings
+		echo 'default' > /home/olpc/.gnome2/keyrings/default
+		TIME=$(/bin/date +%s)
+		cat >/home/olpc/.gnome2/keyrings/default.keyring.tmp <<EOF
+[keyring]
+display-name=default
+ctime=$TIME
+mtime=$TIME
+lock-on-idle=false
+lock-timeout=0
+EOF
+		mv /home/olpc/.gnome2/keyrings/default.keyring{.tmp,}
+		# .gnome2 permissions are fixed up below
+	fi
+
+	# version 13: get rid of old ~/Activities/.groups from gg-802-1 (#10582)
+	# activity group changed for XO-1, and this is now specified in /etc
+	if [ -e /home/olpc/Activities/.groups ]; then
+		ACTGROUPS=$(</home/olpc/Activities/.groups)
+		if [ "$ACTGROUPS" = "http://wiki.laptop.org/go/Activities/G1G1" ]; then
+			rm -f /home/olpc/Activities/.groups
+		fi
+	fi
+
+	# version 17: version 12 accidently created /home/olpc/.gnome2 with root ownership
+	# correct that here for upgrades
+	chown -R olpc:olpc /home/olpc/.gnome2
+
+	# version 19: we need to migrate from UID=500 to UID=1000 for the
+	# F17 upgrade (#11828)
+	[ "$(stat -c %u /home/olpc)" = "500" ] && chown -R olpc:olpc /home/olpc
+}
+
+# determine presence of USB-VGA adapter on boot, switch Xorg config
+# appropriately
+configure_xorg() {
+	# olpc-configure is run before modules are loaded, which means we
+	# won't have our device here. Blocking the system on module
+	# load would slow things down a great deal, so instead, we just load
+	# the modules for various USB VGA devices.
+	# sisusb is pretty fast, udlfb needs special handling.
+	modprobe sisusbvga
+	modprobe udlfb
+
+	# udlfb pops up a symlink under /sys immediately
+	# and then takes ~3s (EDI negotiation?) before
+	# registering its devnode. Only wait if we
+	# see a symlink to a device.
+	# Take longest when no display is attached.
+	local udlfbdev=$(find /sys/bus/usb/drivers/udlfb/ -type l -lname '*/devices/*')
+	if [ -n "$udlfbdev" ]; then
+		sleep 4
+	fi
+
+	# sisusbvga currently turns up at sisusbvga0; udlfb devices take
+	# the next fb device number, so we rely on a udev rule to find
+	# the right fb device.
+	USBVGAFOUND=false
+	local basedevname
+	for basedevname in sisusbvga udlfb; do
+		local devs=(/dev/${basedevname}*)
+		local devname=${devs[0]}
+		if [ -n "$devname" ]; then
+			USBVGAFOUND=true
+			sed -e "s:DEVICE:${devname}:" \
+			   /usr/share/olpc-utils/xorg.conf.d/$basedevname.conf \
+			   > /etc/X11/xorg.conf.d/$basedevname.conf
+			break
+		else
+			rm -f /etc/X11/xorg.conf.d/$basedevname.conf
+			rmmod $basedevname
+		fi
+	done
+
+	local xo_x_config=/etc/X11/xorg.conf.d/xo$XO_VERSION.conf
+	if [ $USBVGAFOUND = 'true' ]; then
+		rm -f $xo_x_config
+		# Inhibit suspend with a long-lived PID
+		# suspend will cut power to the USB2VGA connector.
+		# We race with powerd startup so mkdir
+		mkdir -p /run/powerd-inhibit-suspend
+		touch /run/powerd-inhibit-suspend/1
+	elif [ ! -e "$xo_x_config" ]; then
+		ln -s /usr/share/olpc-utils/xorg.conf.d/xo$XO_VERSION.conf /etc/X11/xorg.conf.d/
+	fi
+}
+
+resize_system() {
+	[ -e "/security/no-resize" ] && return 0
+
+	# Check that we're on a correctly partitioned system
+	local bootpart=$(findmnt -rvn -o SOURCE /bootpart) || return 0
+	local syspart=$(findmnt -rvn -o SOURCE /) || return 0
+
+	local syspart_base=$(basename $syspart)
+	[ "${syspart_base:0:3}" = "mmc" ] || return 0
+
+	echo "Growing root filesystem (if it can be grown)"
+	resize2fs "$syspart"
+}
+
+# configurations which happen in the root fs 
+# these need to be repeated when we upgrade.
+configure_root() {
+	echo "olpc-configure: reconfiguring root..."
+	read_config
+	resize_system
+
+	# We (ab)use this now-deprecated file to store keyboard settings,
+	# and we read them out again in olpc-session and in udev rules.
+	# v20: XKB variables were renamed to remove underscores for udev
+	cat >/etc/sysconfig/keyboard <<__EOF__
+XKBMODEL="$XKBMODEL"
+XKBLAYOUT="$XKBLAYOUT"
+XKBVARIANT="$XKBVARIANT"
+__EOF__
+
+	# First X layout used also as kernel keytable
+	KERN_KEYTABLE=`echo "$XKBLAYOUT" |  cut -d , -f 1`
+
+	# Some keyboards come with a special OLPC variant for the console
+	if [ -f /lib/kbd/keymaps/i386/olpc/$KERN_KEYTABLE-olpc.map.gz ]; then
+		KERN_KEYTABLE=$KERN_KEYTABLE-olpc
+	fi
+
+	cat >/etc/vconsole.conf <<__EOF__
+KEYMAP="$KERN_KEYTABLE"
+FONT=sun12x22
+__EOF__
+
+	# Apply keyboard map now
+	loadkeys "$KERN_KEYTABLE"
+
+	# developer customizations.
+	if /usr/bin/olpc-test-devkey -q ; then
+		install_customization_packages
+	fi
+
+	# Set hostname via /etc/hosts and hostnamed
+	# using MAC address in manufacturing data, with random number fallback
+	if ! [ -e /etc/hostname ]; then
+		local hname
+
+		# Read MAC address from mfg data
+		local wm=$(get_xo_mfg_tag WM)
+		if [ -n "$wm" ]; then
+			wm=${wm,,}
+			hname="xo-${wm: -8}"
+		else
+			# Fallback on randomly generated hostname
+			hname=$(printf "xo-%02x-%02x-%02x\n" \
+				$(( $RANDOM % 255 )) $(( $RANDOM % 255 )) $(( $RANDOM % 255 )))
+		fi
+		hostnamectl set-hostname --static --transient "${hname}.localdomain"
+		sed -c -i -e "s/^127\.0\.0\.1.*/127.0.0.1 ${hname}.localdomain ${hname} localhost/g" /etc/hosts
+	fi
+}
+
+# Main entry point
+XO_VERSION=$(get_xo_version)
+[ -z "$XO_VERSION" -o "$XO_VERSION" = "0" ] && exit 0
+if [ -e "$OLPC_HOME/.olpc-configured" ]; then
+	olpc_home_version="$(<$OLPC_HOME/.olpc-configured)"
+fi
+
+# unconditionally configure the hardware
+configure_hw
+
+# unconditionally configure xorg for USB2VGA
+configure_xorg
+
+# if we lack a root version but we already have a home version,
+# it means that we have just updated with olpc-update.
+if [ ! -e "/.olpc-configured" -a -n "$olpc_home_version" ]; then
+	# trigger the activity upgrade prompt (#7495, #9747)
+	touch "$OLPC_HOME/.sugar-update"
+fi
+
+# check whether /home configuration is necessary.
+if [ "$olpc_home_version" != "$OLPC_CONFIGURE_VERSION" ]; then
+	configure_home
+	echo "$OLPC_CONFIGURE_VERSION" >$OLPC_HOME/.olpc-configured
+fi
+
+# check whether / configuration is necessary.
+if ! [ -e "/.olpc-configured" ]; then
+	configure_root
+	> /.olpc-configured
+fi

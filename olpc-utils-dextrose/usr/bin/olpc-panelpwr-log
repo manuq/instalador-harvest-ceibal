@@ -1,0 +1,399 @@
+#!/bin/bash
+# Copyright (C) 2011 One Laptop per Child
+# Solar power logging script
+# Released under GPLv3
+
+VERSION="1.0.00"
+FDATE=`date "+%y%m%d-%H%M%S"`
+HOST=$(</etc/hostname)
+B_INFO=/sys/class/power_supply/olpc-battery
+
+# This is the delay in the wallclock_delay, the minimum sample time
+# for the system date.
+WALL_PERIOD=2
+
+# This is the (approx) delay in between readings.
+# This delay should be some where in the middle of integer mutiples of
+# WALL_PERIOD delays that bound the desired delay.  That way if our
+# timer and system date are out of phase you don't end up having to
+# wait a whole new WALL_PERIOD for the RTC check to expire.
+DELAY=300
+
+OFW=/ofw
+for x in /proc/device-tree /ofw; do
+    if [[ -e $x/mfg-data ]]; then OFW=$x; break; fi
+done
+
+ec_cmds=/sys/power/ec
+if [[ ! -e $ec_cmds ]]; then
+	if [[ ! -e /sys/kernel/debug ]]; then
+		sudo mount -t debugfs none /sys/kernel/debug
+	fi
+
+	ec_cmds=/sys/kernel/debug/olpc-ec/cmd
+	if [[ ! -e $ec_cmds ]]; then
+		ec_cmds=/sys/kernel/debug/olpc-ec/generic
+		if [[ ! -e $ec_cmds ]]; then
+			echo "Missing kernel support for embedded controller commands"
+		fi
+	fi
+fi
+
+if [ -e /usr/share/olpc-utils/olpc-utils-functions ]; then
+	source /usr/share/olpc-utils/olpc-utils-functions
+else
+	function get_xo_version
+	{
+
+		if [ -e /sys/class/dmi/id/product_version ]
+		then
+			XO_VERSION=$(< /sys/class/dmi/id/product_version )
+		else
+			XO_VERSION="1"
+		fi
+
+	}
+
+	function get_ofw_file()
+	{
+		fpath=$1
+		if [ -e "/proc/device-tree/$fpath" ]; then
+			cat "/proc/device-tree/$fpath"  2>/dev/null
+		else
+			cat "/ofw/$fpath"  2>/dev/null
+		fi
+	}
+fi
+
+XO_VERSION=$(get_xo_version)
+
+# we have to handle 2.6.dd which yield 2600 and 3.0.0 which yields 300
+# all of this will fail on anything earlier than 2.6.9
+KERNVER=`uname -r | cut -c 1-6 | sed 's/[\._-]//g'`
+
+KERNAPI=1
+if [[ $KERNVER -gt 2600 ]]; then
+	# of the 2.6 series, 25 or later
+	if [[ $KERNVER -gt 2625 ]]; then
+		KERNAPI=2
+	fi
+else
+	# 3.0.0
+	KERNAPI=2
+fi
+
+# trap control/c and undo configuration changes
+function cleanup {
+    echo
+    echo "cleanup, unblock wifi"
+    sudo rfkill unblock wifi
+    echo "cleanup, unblock screen"
+    sudo su -c "echo 0 > /sys/class/backlight/dcon-bl/device/sleep"
+    sudo su -c "echo 15 > /sys/class/backlight/dcon-bl/brightness"
+    xset dpms
+    echo "cleanup, restart powerd"
+    sudo start powerd
+    exit
+}
+trap cleanup SIGINT
+
+# Make sure we can write the ec wakup command even as non-root
+test $XO_VERSION != "1" && sudo chmod a+rw $ec_cmds
+
+xset -dpms
+
+# Powerd conflicts with this script as we both try to use the rtctimer
+echo "Stopping powerd"
+sudo stop powerd
+
+# Turn off the wireless device.
+echo "Powering off wireless"
+sudo rfkill block wifi
+
+echo "Checking/waiting for a battery"
+
+until [ $(< $B_INFO/present ) = 1 ]
+do
+	sleep 1
+done
+
+echo "Found one."
+
+# Now that we have a battery we can use the battery serial number in
+# the filename.
+DS_SERNUM=$(< $B_INFO/serial_number )
+LOGFILE="pp-$FDATE-$DS_SERNUM.csv"
+
+ACR_PROP="charge_counter"
+
+if [ ! -e $B_INFO/$ACR_PROP ]
+then
+	ACR_PROP="accum_current"
+fi
+
+if [ -e /bootpart/boot/olpc_build ]
+then
+	BUILD=$(< /bootpart/boot/olpc_build )
+fi
+
+if [ -e /boot/olpc_build ]
+then
+	BUILD=$(< /boot/olpc_build )
+fi
+
+if [ -e $B_INFO/eeprom ]
+then
+	# Skip 64 bytes and read 5 bytes; display without an address
+	# and in single byte mode.  I don't use od directly since the
+	# -j skip does not do a real fseek.
+	echo "Reading eeprom data."
+	MFG_SER=`dd if=$B_INFO/eeprom bs=1 skip=64 count=5 2> /dev/null | od -A n -t x1`
+	CHGCNT=`dd if=$B_INFO/eeprom bs=1 skip=74 count=2 2> /dev/null| od -A n -t x1 `
+	CHGSOC=`dd if=$B_INFO/eeprom bs=1 skip=76 count=1 2> /dev/null| od -A n -t x1 `
+	DISCNT=`dd if=$B_INFO/eeprom bs=1 skip=77 count=2 2> /dev/null| od -A n -t x1 `
+	DISSOC=`dd if=$B_INFO/eeprom bs=1 skip=79 count=1 2> /dev/null| od -A n -t x1 `
+else
+	echo "Can't read the eeprom data because your kernel dosen't support eeprom dump"
+	MFG_SER="NA"
+	CHGCNT="NA"
+	CHGSOC="NA"
+	DISCNT="NA"
+	DISSOC="NA"
+fi
+
+ec_wakeup() {
+	test $XO_VERSION = "1" && return
+	byte3=$(( ($1 >> 24) & 0xff ))
+	byte2=$(( ($1 >> 16) & 0xff ))
+	byte1=$(( ($1 >> 8 ) & 0xff ))
+	byte0=$(( ($1 & 0xff) ))
+	printf "36:0 %x %x %x %x \n" $byte3 $byte2 $byte1 $byte0  > $ec_cmds
+}
+
+# We don't want the 1% battery tick to wake us up because that
+# interferes with our stay in suspend for $DELAY time.
+# Also ignore external power events since if the input power is really
+# low the external power present signal will bounce and constantly
+# wake us.
+
+ec_set_wakup_mask() {
+	if [[ $XO_VERSION = "1" ]]; then
+		return
+	elif [[ $XO_VERSION = "1.5" ]]; then
+		printf "1b:0 b9 \n"  > $ec_cmds
+	elif [[ $XO_VERSION = "1.75" ]]; then
+		printf "38:0 60 00 \n" > $ec_cmds
+		sudo sh -c  "echo enabled > /sys/devices/platform/olpc-kbd.0/power/wakeup"
+	fi
+}
+
+# This is broken with current kernels in that it only returns the 1st
+# nibble of the byte however, its still an estimate of the Vin. The
+# accuracy however is only really good for relative measurements,
+# since the scale seems to change.
+# TODO: Plot this vs known Vin across multiple XO's under different loads.
+
+ec_get_Vin() {
+	if [[ $XO_VERSION = "1" ]]; then
+		echo "0"
+		return
+	elif [[ $XO_VERSION = "1.75" ]]; then
+		printf "5c:2 \n" > $ec_cmds
+	else
+		printf "42:1 \n" > $ec_cmds
+	fi
+	printf "%s %s" $(< $ec_cmds )
+}
+
+echo "Starting log $LOGFILE"
+echo
+
+echo "panelpwr_log Ver: $VERSION" > $LOGFILE
+echo -n "HOST: " 	>> $LOGFILE
+echo $HOST  		>> $LOGFILE
+echo -n "DATE: " 	>> $LOGFILE
+echo `date -R` 		>> $LOGFILE
+echo -n "DATESEC: " 	>> $LOGFILE
+echo `date +%s` 	>> $LOGFILE
+echo -n "ECVER: " 	>> $LOGFILE
+echo `get_ofw_file /ec-name` >> $LOGFILE
+echo -n "OFWVER: " 	>> $LOGFILE
+echo `get_ofw_file /openprom/model` 	>> $LOGFILE
+echo -n "MODEL: " 	>> $LOGFILE
+echo `get_ofw_file /model` 	>> $LOGFILE
+echo -n "SERNUM: " 	>> $LOGFILE
+echo `get_ofw_file /serial-number` 	>> $LOGFILE
+echo -n "BATTECH: " 	>> $LOGFILE
+echo `cat $B_INFO/technology` >> $LOGFILE
+echo -n "BATMFG: " 	>> $LOGFILE
+echo `cat $B_INFO/manufacturer` >> $LOGFILE
+echo -n "BATSER: " 	>> $LOGFILE
+echo $DS_SERNUM 	>> $LOGFILE
+echo -n "BUILD: " 	>> $LOGFILE
+echo $BUILD 		>> $LOGFILE
+echo -n "MFGSER: " 	>> $LOGFILE
+echo $MFG_SER 		>> $LOGFILE
+echo -n "CHGCNT: " 	>> $LOGFILE
+echo $CHGCNT 		>> $LOGFILE
+echo -n "CHGSOC: " 	>> $LOGFILE
+echo $CHGSOC 		>> $LOGFILE
+echo -n "DISCNT: " 	>> $LOGFILE
+echo $DISCNT 		>> $LOGFILE
+echo -n "DISSOC: " 	>> $LOGFILE
+echo $DISSOC 		>> $LOGFILE
+echo -n "WALL_PERIOD: " >> $LOGFILE
+echo $WALL_PERIOD: 	>> $LOGFILE
+echo -n "DELAY: " 	>> $LOGFILE
+echo $DELAY: 		>> $LOGFILE
+echo -n "XOVER: " 	>> $LOGFILE
+echo $XO_VERSION 	>> $LOGFILE
+echo -n "KERNVER: "     >> $LOGFILE
+echo $KERNVER           >> $LOGFILE
+echo -n "KERNAPI: "     >> $LOGFILE
+echo $KERNAPI           >> $LOGFILE
+
+# Allow the addition of some descriptive text from the cmd line
+echo -n "COMMENT: " >> $LOGFILE
+echo $1 >> $LOGFILE
+echo "<StartData>" >> $LOGFILE
+
+# feed this the wall clock time in seconds you wish to delay
+# It will spin until that time has passed.  If the system is suspeneded
+# it may sleep more.
+function wallclock_delay {
+	DATE1=`date +%s`
+	EXPIRE=$((DATE1+$1))
+	while [ `date +%s` -lt $EXPIRE ]; do
+	    sleep $WALL_PERIOD
+	done
+}
+
+# convert a number into 2's complement
+function conv_2s_comp {
+
+	# This has since been changed in the kernel so that it returns
+	# a signed value rather than unsigned, which fixes the math.
+	# So if its already negative then bail.
+
+	if [ $1 -lt 0 ]
+	then
+		echo $1
+		return
+	fi
+
+	if [ $1 -gt 32767 ]
+	then
+		echo $(( 0 - (65535-$1+1) ))
+		return
+	fi
+
+	echo $1
+}
+
+CAPACITY=capacity
+if [ ! -f $B_INFO/$CAPACITY ]
+then
+CAPACITY=capacity_level
+fi
+
+function get_acr {
+
+    local acr_temp
+
+    acr_temp=$(< $B_INFO/$ACR_PROP )
+    test $KERNAPI -eq 1 && acr_temp=$(conv_2s_comp ${acr_temp:-0})
+    echo ${acr_temp:-0}
+}
+
+function get_seconds {
+	echo `date +%s`
+}
+
+function take_reading {
+	CAPLEVEL=$(< $B_INFO/$CAPACITY )
+	VOLT=$(< $B_INFO/voltage_avg)
+	CURR=$(< $B_INFO/current_avg)
+	TEMP=$(< $B_INFO/temp)
+	STAT=$(< $B_INFO/status)
+
+	PREV_MAh=${MAh-0}
+	PREV_ACR=${ACR-0}
+	ACR=$(get_acr)
+	ACR_NET=$(( ${ACR-0}-${START_ACR-0} ))
+	ACR_DIFF=$(( ${ACR} - ${PREV_ACR} ))
+	if [ $XO_VERSION == "1" ]
+	then
+		MAh_NET=$(( ($ACR_NET * 625) / 1500 ))
+		MAh_DIFF=$(( ($ACR_DIFF * 625) / 1500 ))
+	else
+		MAh_NET=$(( ${ACR_NET} / 1000 ))
+		MAh_DIFF=$(( ($ACR_DIFF+500) / 1000 ))
+	fi
+	PREV_SEC=$THIS_SEC
+	THIS_SEC=$(get_seconds)
+	SECS=$(( ${THIS_SEC} - ${PREV_SEC} ))
+	# Prevent the divide by zero error that happens on startup
+	test $SECS = "0" && SECS=1
+	MAs_DIFF=$(( $MAh_DIFF * 3600 ))
+	NET_MINUTES=$(( ( ${THIS_SEC} - ${START_TIME} ) / 60 ))
+	VIN=$(ec_get_Vin)
+	W_SAMPLE=$(( ((${MAs_DIFF}/${SECS}) * ((${VOLT}+500)/1000) ) / 1000 ))
+
+#	echo $MAh_DIFF,$MAs_DIFF,$SECS,$(( (${VOLT}+500)/1000 ))
+
+	echo "${THIS_SEC},$CAPLEVEL,$VOLT,$CURR,$TEMP,$ACR,$STAT,$MAh_NET,$NET_MINUTES,$VIN,$W_SAMPLE" | tee -a $LOGFILE
+}
+
+START_ACR=$(get_acr)
+START_TIME=$(get_seconds)
+THIS_SEC=$START_TIME
+
+FULL_EDGE=0
+PREV_MAh=0
+MAh=0
+
+# When charging the batt V changes rapidly.  Take some startup samples
+# so that first long delay sample has a more accurate Vb.
+
+take_reading
+ec_wakeup 3000
+sleep 3
+
+# Set the backlight to off
+sudo su -c "echo 0 > /sys/class/backlight/dcon-bl/brightness"
+
+take_reading
+ec_wakeup 3000
+sleep 3
+
+while true
+do
+	if [[ $STAT != "Full" ]]
+	then
+		FULL_EDGE=0
+	fi
+
+	if [[ $FULL_EDGE = 0 ]]
+	then
+		take_reading
+	else
+		STAT=$(< $B_INFO/status)
+	fi
+
+	if [[ $FULL_EDGE = 0 && $STAT = "Full" ]]
+	then
+		FULL_EDGE=1
+	fi
+#	sync
+	# EC wakup is in mili-seconds from now.
+#	ec_wakeup $(( $DELAY * 1000 ))
+#	sleep $DELAY
+#	wallclock_delay $DELAY
+#	xset dpms force off
+#	Give the user a chance to see the previous reading, or ctrl-c to stop
+	sleep 5
+	sudo su -c "echo 1 > /sys/class/backlight/dcon-bl/device/sleep"
+	ec_set_wakup_mask
+	sudo rtcwake -m mem -s $DELAY 2> /dev/null 1> /dev/null
+	sudo su -c "echo 0 > /sys/class/backlight/dcon-bl/device/sleep"
+done

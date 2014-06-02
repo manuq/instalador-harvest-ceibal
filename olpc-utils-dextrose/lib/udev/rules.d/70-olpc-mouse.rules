@@ -1,0 +1,1 @@
+ACTION=="add", SUBSYSTEM=="input", KERNEL=="mouse*", DRIVERS=="psmouse", RUN="olpc_mouse_setup"

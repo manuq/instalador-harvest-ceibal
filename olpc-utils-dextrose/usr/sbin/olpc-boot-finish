@@ -1,0 +1,15 @@
+#!/bin/bash
+# Executed at late stage of boot, just before starting X
+
+if pgrep plymouthd &>/dev/null; then
+	# Update boot animation to indicate that we're ending the boot routine
+	plymouth update --status="finish"
+
+	# Ensure previous command has been executed by the daemon
+	plymouth --ping
+
+	# Freeze DCON. powerd will unfreeze us when X is ready.
+	echo 1 > /sys/devices/platform/dcon/freeze
+fi
+
+exit 0

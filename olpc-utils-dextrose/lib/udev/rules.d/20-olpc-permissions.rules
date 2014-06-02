@@ -1,0 +1,26 @@
+# needed for user programs that use galcore directly e.g. Adobe Flash
+KERNEL=="galcore", GROUP="olpc", MODE="0660"
+
+# allow seat access to ebook switch so that maliit can read its status
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="OLPC ebook switch", TAG+="uaccess"
+
+# vmeta
+KERNEL=="uio0", SUBSYSTEM=="uio", GROUP="olpc", MODE="0660"
+KERNEL=="pmem_adsp", SUBSYSTEM=="misc", GROUP="olpc", MODE="0660"
+KERNEL=="ion", SUBSYSTEM=="misc", GROUP="olpc", MODE="0660"
+
+# allow a special group to have access to RF on/off control
+KERNEL=="rfkill", GROUP="dialout", MODE="0660"
+
+# allow access to all Lego products (usbfs devices without kernel driver)
+SUBSYSTEM=="usb", ATTR{idVendor}=="0694", GROUP="dialout", MODE="0660"
+
+# allow access to all Lego products (devices with kernel driver)
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="0694", GROUP="dialout", MODE="0660"
+
+# allow access to Butia
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="04d8", ATTRS{idProduct}=="000[bc]", GROUP="dialout", MODE="0660"
+
+# fischertechnik devices
+SUBSYSTEM=="usb", ATTR{idVendor}=="146a", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="usb", ATTR{idVendor}=="221d", ATTR{idProduct}=="1000", RUN+="/sbin/modprobe usbserial vendor=0x221D product=0x1000"

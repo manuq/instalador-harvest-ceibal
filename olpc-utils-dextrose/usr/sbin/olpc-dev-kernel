@@ -1,0 +1,57 @@
+#!/bin/bash
+# Our OS images now ship a zipped kernel and initramfs (with or without
+# signature) pair. If developers wish to test a new initramfs or kernel
+# simply by putting the file in place, they will need to unzip the other
+# of the two files to pair with it.
+#
+# This script aims to simplify that step. Run it before or after putting
+# your development kernel/initramfs in place.
+
+tmpdir=$(mktemp -d)
+trap "rm -rf $tmpdir" EXIT
+
+BOOT=/boot
+[ -e "/versions/boot/current/boot" ] && BOOT=/versions/boot/current/boot
+[ -e "/bootpart/boot" ] && BOOT=/bootpart/boot
+
+extract_file()
+{
+	name=$1
+	fromzip=$2
+	path=$BOOT/$1.orig
+	final_path=$BOOT/$1
+	if [ "$force" = "0" -a -e "$final_path" ]; then
+		echo "$final_path already exists; not extracting $name"
+		return 1
+	else
+		unzip $BOOT/${fromzip}[0-9].zip -d "$tmpdir"
+		mv "$tmpdir"/data.img $path
+		rm -rf "$tmpdir"/*
+		echo "Extracted: $path"
+		return 0
+	fi
+}
+
+update_symlink()
+{
+	name=$1
+	path=$BOOT/$name
+	if [ ! -e "$path" -o -h "$path" ]; then
+		ln -snf ${name}.orig $path
+		echo "Symbolic link $path updated"
+	else
+		echo "Didn't install symbolic link $1."
+		echo "Does a file exist with that name?"
+	fi
+}
+
+# -f argument overwrites any already-existing unzipped kernel/initramfs
+force=0
+[ "$1" = "-f" ] && force=1
+
+extract_file vmlinuz runos && update_symlink vmlinuz
+extract_file initrd.img runrd && update_symlink initrd.img
+
+echo "All done. If the above went according to plan, your development "
+echo "kernel/initramfs can be found in $BOOT and will be used"
+echo "automatically upon reboot."

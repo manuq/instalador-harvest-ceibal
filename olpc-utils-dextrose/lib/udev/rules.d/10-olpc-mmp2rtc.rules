@@ -1,0 +1,8 @@
+# Link the RTC that can wake up the CPU as rtcalarm
+SUBSYSTEM=="rtc" DRIVERS=="mmp-rtc" SYMLINK+="rtcalarm"
+# Linux 3.5 and later, use sa1100-rtc instead
+SUBSYSTEM=="rtc" DRIVERS=="sa1100-rtc" SYMLINK+="rtcalarm"
+
+## On F17 and later we find the rtc link set properly,
+## courtesy of systemd which links it conditional on hctosys=1
+# SUBSYSTEM=="rtc" DRIVERS=="rtc_idt1338" SYMLINK+="rtc" 

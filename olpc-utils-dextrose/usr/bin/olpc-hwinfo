@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# olpc-hwinfo
+# centralize retrieval of XO modelname, serial number, etc, since
+# location and parsing technique sometimes move/change.
+# (in the spirit of http://dev.laptop.org/ticket/11116#comment:6)
+
+source /usr/share/olpc-utils/olpc-utils-functions
+usage()
+{
+	exec >&2
+	echo "usage: $me {model|serialnum|uuid|mfg-tag <tagname>}"
+	exit 1
+}
+
+me=${0##*/}
+which=$1
+
+case $which in
+model)
+	get_xo_version
+	;;
+serial*)
+	get_xo_mfg_tag SN || exit 1
+	;;
+uuid)
+	get_xo_mfg_tag "U#" || exit 1
+	;;
+mfg-tag)
+	get_xo_mfg_tag "$2" || exit 1
+	;;
+*)
+	usage;
+	;;
+esac

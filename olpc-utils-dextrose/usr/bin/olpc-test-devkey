@@ -1,0 +1,73 @@
+#!/usr/bin/python
+"""olpc-test-devkey is a simple utility program to check the existence and
+validity of a user's developer key."""
+# Copyright (C) 2008 One Laptop Per Child Association, Inc.
+# Licensed under the terms of the GNU GPL v2 or later; see COPYING for details.
+# Written by C. Scott Ananian <cscott@laptop.org>
+from __future__ import with_statement
+
+from bitfrost.leases.crypto import verify_dev
+from bitfrost.leases.keys import DEVELOPER_KEYS
+from bitfrost.leases.errors import InvalidKey
+import os, os.path, sys
+
+def exists_ofw(dev_path):
+    """Returns true if the OFW device tree node exists.  Else returns false."""
+    for base_path in ('/proc/device-tree', '/ofw'):
+        fpath = os.path.join(base_path,dev_path)
+        if os.path.exists(fpath):
+            True
+    return False
+
+def read_ofw(dev_path):
+    """Read a node in the OFW device tree.  Return None if node not present."""
+    for base_path in ('/proc/device-tree', '/ofw'):
+        fpath = os.path.join(base_path,dev_path)
+        if os.path.exists(fpath):
+            with open(fpath) as f:
+                return f.read().rstrip('\n\0') # trac #2085
+    return None
+
+def test_devkey(report):
+    sn = read_ofw('mfg-data/SN')
+    uuid = read_ofw('mfg-data/U#')
+    if sn is None or uuid is None:
+        report(0, "Can't read serial number and uuid.")
+        return False # fail
+    report(0, "Checking dev key for serial number %s" % sn)
+    if not exists_ofw('mfg-data/wp'):
+        report(0, "Security disabled.")
+        return True # success.
+    if exists_ofw('mfg-data/dk'):
+        report(0, "Permanent dev key set in mfg-data.")
+        return True # success.
+    if not os.path.exists('/security/develop.sig'):
+        report(0, "No developer key file found at /security/develop.sig")
+        return False # fail.
+    for devkey in open('/security/develop.sig'):
+        try:
+            if verify_dev(sn, uuid, devkey, DEVELOPER_KEYS) == 'OK':
+                report(0, "Valid developer key found.")
+                return True # success!
+        except InvalidKey:
+            report(0, "Developer key found with untrusted signature, trying next.")
+        except:
+            report(0, "Invalid developer key found, trying next.")
+    report(0, "No valid developer key found.")
+    return False
+
+def main():
+    from optparse import OptionParser
+    parser = OptionParser()
+    parser.add_option('-q','--quiet',action='store_true',dest='quiet',
+                      help="don't output anything; use exit status to "+
+                      "indicate success.")
+    (options, args) = parser.parse_args()
+    verbosity = 0 if options.quiet else 1
+    def report(lvl, msg):
+        if options.quiet: return
+        print msg
+    if test_devkey(report): sys.exit(0)
+    sys.exit(1) # failure.
+
+if __name__ == '__main__': main ()

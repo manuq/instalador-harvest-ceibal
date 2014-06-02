@@ -1,0 +1,406 @@
+#!/bin/bash
+# Copyright (C) 2012 One Laptop per Child
+# Solar power logging script
+# Released under GPLv3
+
+function pwrlog_module_init
+{
+	B_INFO=/sys/class/power_supply/olpc-battery
+
+	OFW=/ofw
+	for x in /proc/device-tree /ofw; do
+	    if [[ -e $x/mfg-data ]]; then OFW=$x; break; fi
+	done
+
+	ec_cmds=/sys/power/ec
+	if [[ ! -e $ec_cmds ]]; then
+		if [[ ! -e /sys/kernel/debug ]]; then
+			sudo mount -t debugfs none /sys/kernel/debug
+		fi
+
+		ec_cmds=/sys/kernel/debug/olpc-ec/cmd
+		if [[ ! -e $ec_cmds ]]; then
+			ec_cmds=/sys/kernel/debug/olpc-ec/generic
+			if [[ ! -e $ec_cmds ]]; then
+				echo "Missing kernel support for embedded controller commands"
+			fi
+		fi
+	fi
+
+	if [ -e /usr/share/olpc-utils/olpc-utils-functions ]; then
+		source /usr/share/olpc-utils/olpc-utils-functions
+	else
+		function get_xo_version
+		{
+
+			if [ -e /sys/class/dmi/id/product_version ]
+			then
+				echo $(< /sys/class/dmi/id/product_version )
+			else
+				echo "1"
+			fi
+
+		}
+
+		function get_ofw_file()
+		{
+			fpath=$1
+			if [ -e "/proc/device-tree/$fpath" ]; then
+				cat "/proc/device-tree/$fpath"  2>/dev/null
+			else
+				cat "/ofw/$fpath"  2>/dev/null
+			fi
+		}
+	fi
+
+	XO_VERSION=$(get_xo_version)
+
+	# we have to handle 2.6.dd which yield 2600 and 3.0.0 which yields 300
+	# all of this will fail on anything earlier than 2.6.9
+	KERNVER=`uname -r | cut -c 1-6 | sed 's/[\._-]//g'`
+
+	KERNAPI=1
+	if [[ $KERNVER -gt 2600 ]]; then
+		# of the 2.6 series, 25 or later
+		if [[ $KERNVER -gt 2625 ]]; then
+			KERNAPI=2
+		fi
+	else
+		# 3.0.0
+		KERNAPI=2
+	fi
+
+	if [ -e /bootpart/boot/olpc_build ]
+	then
+		BUILD=$(< /bootpart/boot/olpc_build )
+	fi
+
+	if [ -e /boot/olpc_build ]
+	then
+		BUILD=$(< /boot/olpc_build )
+	fi
+
+	# Make sure we can write the ec wakup command even as non-root
+	test $XO_VERSION != "1" && sudo chmod a+rw $ec_cmds
+
+	if [[ $XO_VERSION = "1.75" ]]; then
+		sudo sh -c  "echo enabled > /sys/devices/platform/olpc-kbd.0/power/wakeup"
+	fi
+
+	# init vaues for a few variables
+	# keeps set -u from flagging these
+	DELAY=0
+	WALL_PERIOD=0
+	COMMENT=""
+}
+
+function ec_wakeup()
+{
+	test $XO_VERSION = "1" && return
+	byte3=$(( ($1 >> 24) & 0xff ))
+	byte2=$(( ($1 >> 16) & 0xff ))
+	byte1=$(( ($1 >> 8 ) & 0xff ))
+	byte0=$(( ($1 & 0xff) ))
+	printf "36:0 %x %x %x %x \n" $byte3 $byte2 $byte1 $byte0  > $ec_cmds
+}
+
+# We don't want the 1% battery tick to wake us up because that
+# interferes with our stay in suspend for $DELAY time.
+# Also ignore external power events since if the input power is really
+# low the external power present signal will bounce and constantly
+# wake us.
+
+function ec_set_wakup_mask()
+{
+	if [[ $XO_VERSION = "1" ]]; then
+		return
+	elif [[ $XO_VERSION = "1.5" ]]; then
+		printf "1b:0 b9 \n"  > $ec_cmds
+	elif [[ $XO_VERSION = "1.75" ]]; then
+		printf "38:0 60 00 \n" > $ec_cmds
+	fi
+}
+
+# This is broken with current kernels in that it only returns the 1st
+# nibble of the byte however, its still an estimate of the Vin. The
+# accuracy however is only really good for relative measurements,
+# since the scale seems to change.
+# TODO: Plot this vs known Vin across multiple XO's under different loads.
+
+function ec_get_Vin()
+{
+	if [[ $XO_VERSION = "1" ]]; then
+		echo "0"
+		return
+	elif [[ $XO_VERSION = "1.75" ]]; then
+		printf "5c:2 \n" > $ec_cmds
+	else
+		printf "42:1 \n" > $ec_cmds
+	fi
+	printf "%s %s" $(< $ec_cmds )
+}
+
+function wait_for_battery()
+{
+	until [ $(< $B_INFO/present ) = 1 ]
+	do
+		sleep 1
+	done
+}
+
+
+# Interesting battery info
+function pwrlog_battery_init()
+{
+	DS_SERNUM=$(< $B_INFO/serial_number )
+	if [ -e $B_INFO/eeprom ]
+	then
+		# Skip 64 bytes and read 5 bytes; display without an address
+		# and in single byte mode.  I don't use od directly since the
+		# -j skip does not do a real fseek.
+		echo "Reading eeprom data."
+		MFGFAC=`dd if=$B_INFO/eeprom bs=1 skip=06 count=2 2> /dev/null| od -A n -t x1 `
+		MFG_SER=`dd if=$B_INFO/eeprom bs=1 skip=64 count=5 2> /dev/null | od -A n -t x1`
+		CHGCNT=`dd if=$B_INFO/eeprom bs=1 skip=74 count=2 2> /dev/null| od -A n -t x1 `
+		CHGSOC=`dd if=$B_INFO/eeprom bs=1 skip=76 count=1 2> /dev/null| od -A n -t x1 `
+		DISCNT=`dd if=$B_INFO/eeprom bs=1 skip=77 count=2 2> /dev/null| od -A n -t x1 `
+		DISSOC=`dd if=$B_INFO/eeprom bs=1 skip=79 count=1 2> /dev/null| od -A n -t x1 `
+	else
+		echo "Can't read the eeprom data because your kernel dosen't support eeprom dump"
+		MFG_FAC="NA"
+		MFG_SER="NA"
+		CHGCNT="NA"
+		CHGSOC="NA"
+		DISCNT="NA"
+		DISSOC="NA"
+	fi
+
+	CAPACITY=capacity
+	if [ ! -f $B_INFO/$CAPACITY ]
+	then
+		CAPACITY=capacity_level
+	fi
+
+	ACR_PROP="charge_counter"
+	if [ ! -e $B_INFO/$ACR_PROP ]
+	then
+		ACR_PROP="accum_current"
+	fi
+}
+
+function pwrlog_write_header()
+{
+	echo "$PRGNAME Ver: $VERSION" > $LOGFILE
+	echo -n "HOST: " 	>> $LOGFILE
+	echo $HOST  		>> $LOGFILE
+	echo -n "DATE: " 	>> $LOGFILE
+	echo `date -R` 		>> $LOGFILE
+	echo -n "DATESEC: " 	>> $LOGFILE
+	echo `date +%s` 	>> $LOGFILE
+	echo -n "ECVER: " 	>> $LOGFILE
+	echo `get_ofw_file /ec-name` >> $LOGFILE
+	echo -n "OFWVER: " 	>> $LOGFILE
+	echo `get_ofw_file /openprom/model` 	>> $LOGFILE
+	echo -n "MODEL: " 	>> $LOGFILE
+	echo `get_ofw_file /model` 	>> $LOGFILE
+	echo -n "SERNUM: " 	>> $LOGFILE
+	echo `get_ofw_file /serial-number` 	>> $LOGFILE
+	echo -n "BATTECH: " 	>> $LOGFILE
+	echo `cat $B_INFO/technology` >> $LOGFILE
+	echo -n "BATMFG: " 	>> $LOGFILE
+	echo `cat $B_INFO/manufacturer` >> $LOGFILE
+	echo -n "BATSER: " 	>> $LOGFILE
+	echo $DS_SERNUM 	>> $LOGFILE
+	echo -n "BUILD: " 	>> $LOGFILE
+	echo $BUILD 		>> $LOGFILE
+	echo -n "MFGSER: " 	>> $LOGFILE
+	echo $MFG_SER 		>> $LOGFILE
+	echo -n "CHGCNT: " 	>> $LOGFILE
+	echo $CHGCNT 		>> $LOGFILE
+	echo -n "CHGSOC: " 	>> $LOGFILE
+	echo $CHGSOC 		>> $LOGFILE
+	echo -n "DISCNT: " 	>> $LOGFILE
+	echo $DISCNT 		>> $LOGFILE
+	echo -n "DISSOC: " 	>> $LOGFILE
+	echo $DISSOC 		>> $LOGFILE
+	echo -n "WALL_PERIOD: " >> $LOGFILE
+	echo $WALL_PERIOD: 	>> $LOGFILE
+	echo -n "DELAY: " 	>> $LOGFILE
+	echo $DELAY: 		>> $LOGFILE
+	echo -n "XOVER: " 	>> $LOGFILE
+	echo $XO_VERSION 	>> $LOGFILE
+	echo -n "KERNVER: "     >> $LOGFILE
+	echo $KERNVER           >> $LOGFILE
+	echo -n "KERNAPI: "     >> $LOGFILE
+	echo $KERNAPI           >> $LOGFILE
+	echo -n "MFGFAC: " 	>> $LOGFILE
+	echo $MFGFAC 		>> $LOGFILE
+
+	# Allow the addition of some descriptive text from the cmd line
+	echo -n "COMMENT: " >> $LOGFILE
+	echo $COMMENT >> $LOGFILE
+	echo "<StartData>" >> $LOGFILE
+}
+
+# feed this the wall clock time in seconds you wish to delay
+# It will spin until that time has passed.  If the system is suspeneded
+# it may sleep more.
+function wallclock_delay {
+	DATE1=`date +%s`
+	EXPIRE=$((DATE1+$1))
+	while [ `date +%s` -lt $EXPIRE ]; do
+	    sleep $WALL_PERIOD
+	done
+}
+
+# convert a number into 2's complement
+function conv_2s_comp {
+
+	# This has since been changed in the kernel so that it returns
+	# a signed value rather than unsigned, which fixes the math.
+	# So if its already negative then bail.
+
+	if [ $1 -lt 0 ]
+	then
+		echo $1
+		return
+	fi
+
+	if [ $1 -gt 32767 ]
+	then
+		echo $(( 0 - (65535-$1+1) ))
+		return
+	fi
+
+	echo $1
+}
+
+function get_acr()
+{
+
+    local acr_temp
+
+    acr_temp=$(< $B_INFO/$ACR_PROP )
+    test $KERNAPI -eq 1 && acr_temp=$(conv_2s_comp ${acr_temp:-0})
+    eval "$1=${acr_temp:-0}"
+}
+
+function get_seconds
+{
+	echo `date +%s`
+}
+
+function init_readings
+{
+	get_acr START_ACR
+	START_TIME=$(get_seconds)
+	THIS_SEC=$START_TIME
+
+	FULL_EDGE=0
+	PREV_MAh=0
+	MAh=0
+}
+
+get_soc() {
+    eval "$1=$(< $B_INFO/$CAPACITY )"
+}
+
+get_vol() {
+    eval "$1=$(< $B_INFO/voltage_avg)"
+}
+
+# Status can be "Not charging" and needs extra quoting
+get_sta() {
+    eval "$1='$(< $B_INFO/status)'"
+}
+
+get_temp() {
+    eval "$1=$(< $B_INFO/temp)"
+}
+
+get_cur() {
+    eval "$1=$(< $B_INFO/current_avg)"
+}
+
+
+function take_reading
+{
+	get_soc CAPLEVEL
+	get_vol VOLT
+	get_cur CURR
+	get_temp TEMP
+	get_sta STAT
+	PREV_MAh=${MAh-0}
+	PREV_ACR=${ACR-0}
+	get_acr ACR
+
+	ACR_NET=$(( ${ACR-0}-${START_ACR-0} ))
+	ACR_DIFF=$(( ${ACR} - ${PREV_ACR} ))
+	if [ $XO_VERSION == "1" ]
+	then
+		MAh_NET=$(( ($ACR_NET * 625) / 1500 ))
+		MAh_DIFF=$(( ($ACR_DIFF * 625) / 1500 ))
+	else
+		MAh_NET=$(( ${ACR_NET} / 1000 ))
+		MAh_DIFF=$(( ($ACR_DIFF+500) / 1000 ))
+	fi
+	PREV_SEC=$THIS_SEC
+	THIS_SEC=$(get_seconds)
+	SECS=$(( ${THIS_SEC} - ${PREV_SEC} ))
+	# Prevent the divide by zero error that happens on startup
+	test $SECS = "0" && SECS=1
+	MAs_DIFF=$(( $MAh_DIFF * 3600 ))
+	NET_MINUTES=$(( ( ${THIS_SEC} - ${START_TIME} ) / 60 ))
+	VIN=$(ec_get_Vin)
+	W_SAMPLE=$(( ((${MAs_DIFF}/${SECS}) * ((${VOLT}+500)/1000)) / 1000 ))
+
+}
+
+function print_reading
+{
+	echo "${THIS_SEC},$CAPLEVEL,$VOLT,$CURR,$TEMP,$ACR,$STAT,$MAh_NET,$NET_MINUTES,$VIN,$W_SAMPLE"
+}
+
+function log_reading
+{
+	echo "${THIS_SEC},$CAPLEVEL,$VOLT,$CURR,$TEMP,$ACR,$STAT,$MAh_NET,$NET_MINUTES,$VIN,$W_SAMPLE" >> $LOGFILE
+}
+
+function enable_charging()
+{
+    # Resume normal battery operation
+    sudo sh -c "echo 3c:0 > $ec_cmds"
+    get_soc BATTERY_SOC
+    echo "Battery: Charging ON: SOC: ${BATTERY_SOC}"
+}
+
+function disable_charging()
+{
+    # Tell the EC to go into discharge mode
+    sudo sh -c "echo 3b:0 > $ec_cmds"
+    get_soc BATTERY_SOC
+    echo "Battery: Charging OFF: SOC: ${BATTERY_SOC}"
+}
+
+function set_backlight()
+{
+	# Make sure the backlight is on full
+	BRIGHTNESS=/sys/class/backlight/dcon-bl/brightness
+	if [[ -e ${BRIGHTNESS} ]]; then
+		sudo sh -c "echo $1 > ${BRIGHTNESS}"
+	else
+		echo "COVERAGE: missing kernel support for backlight control (#10932)"
+	fi
+}
+
+function set_backlight_full()
+{
+	set_backlight 15
+}
+
+function format_hundreds_as_n.nn
+{
+    local INTV=$(( ${1} / 100 ))
+    local FRACV=$(( ${1} - ( ${INTV}*100 ) ))
+    printf "%d.%02d" ${INTV} ${FRACV}
+}

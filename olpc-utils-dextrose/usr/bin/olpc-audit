@@ -1,0 +1,244 @@
+#!/usr/bin/env python
+import os
+import stat
+import sys
+
+# Filesystem auditor
+#   Compares actual filesystem elements against a simple rules database
+class FilesystemAudit():
+    def __init__(self):
+
+        # We ignore this list of directories
+        # (Probably should add others--experimentation will tell)
+        self.ignores = ["/proc", "/dev", "/media", "/etc/httpd/run", "/sys"]
+
+        self.rules = {}
+
+        # Symbolic indexes into rule element
+        self.R_D_UID = 0
+        self.R_D_GID = 1
+        self.R_F_UID = 2
+        self.R_F_GID = 3
+        self.R_D_PERM = 4
+        self.R_F_MASK = 5
+
+        # List of directories and their rules
+        # Items in the rule
+        #
+        #   Directory UID, Directory GID
+        #   File UID [low,high], File GID [low,high]
+        #   Directory perm mode
+        #   File perm mask
+        #
+        bin_uids = [0, 499]
+        bin_gids = [0, 499]
+        olpc_uids = [500, 500]
+        olpc_gids = [500, 500]
+        store_uids = [500, 15000]
+        store_gids = [500, 15000]
+        self.rules["/bin"] = [0, 0, bin_uids, bin_gids, 0755, 022]
+        self.rules["/boot"] = [0, 0, bin_uids, bin_gids, 0700, 022]
+        self.rules["/usr/bin"] = self.rules["/bin"]
+        self.rules["/usr/lib"] = self.rules["/bin"]
+        self.rules["/usr/lib/rpm"] = [37, 37, bin_uids, bin_gids, 0755, 022]
+        self.rules["/usr/local/bin"] = self.rules["/bin"]
+        self.rules["/usr/local/sbin"] = self.rules["/bin"]
+        self.rules["/usr/local/lib"] = self.rules["/bin"]
+        self.rules["/usr/local/include"] = self.rules["/bin"]
+        self.rules["/usr/include"] = self.rules["/bin"]
+        self.rules["/lib"] = self.rules["/bin"]
+        self.rules["/usr/sbin"] = self.rules["/bin"]
+        self.rules["/sbin"] = self.rules["/bin"]
+        self.rules["/etc"] = [0, 0, bin_uids, bin_gids, 0755, 002]
+        self.rules["/etc/tomcat5"] = [0, 91, bin_uids, bin_gids, 0775, 002]
+        self.rules["/etc/audit"] = [0, 0, bin_uids, bin_gids, 0750, 022]
+        self.rules["/etc/privoxy"] = [73, 73, bin_uids, bin_gids, 0755, 022]
+        self.rules["/etc/lvm/archive"] = [0, 0, bin_uids, bin_gids, 0700, 022]
+        self.rules["/etc/lvm/cache"] = [0, 0, bin_uids, bin_gids, 0700, 022]
+        self.rules["/etc/lvm/backup"] = [0, 0, bin_uids, bin_gids, 0700, 022]
+        self.rules["/etc/ntp/crypto"] = [0, 38, bin_uids, bin_gids, 0750, 022]
+        self.rules["/etc/lvm"] = [0, 0, bin_uids, bin_gids, 0755, 022]
+        self.rules["/etc/cron.d"] = [0, 0, bin_uids, bin_gids, 0700, 022]
+        self.rules["/etc/cron.daily"] = [0, 0, bin_uids, bin_gids, 0755, 022]
+        self.rules["/etc/tor"] = [0, 502, bin_uids, [0,502], 0755, 022]
+        self.rules["/etc/cups"] = [0, 7, bin_uids, bin_gids, 0755, 022]
+        self.rules["/etc/cups/ssl"] = [0, 7, bin_uids, bin_gids, 0700, 022]
+        self.rules["/etc/cups/interfaces"] = [0, 0, bin_uids, bin_gids, 0755, 022]
+        self.rules["/etc/racoon/certs"] = [0, 0, bin_uids, bin_gids, 0700, 022]
+        self.rules["/etc/racoon/scripts"] = [0, 0, bin_uids, bin_gids, 0700, 022]
+        self.rules["/etc/racoon.d/certificates"] = [0, 0, bin_uids, bin_gids, 0700, 022]
+        self.rules["/etc/selinux/targeted/modules/active"] = [0, 0, bin_uids, bin_gids, 0700, 022]
+        self.rules["/etc/audisp"] = [0, 0, bin_uids, bin_gids, 0750, 022]
+        self.rules["/etc/pki/CA"] = [0, 0, bin_uids, bin_gids, 0700, 022]
+        self.rules["/etc/httpd/logs"] = [0, 0, bin_uids, bin_gids, 0700, 022]
+        self.rules["/usr/share"] = self.rules["/etc"]
+        self.rules["/home/olpc"] = [500, 500, olpc_uids, olpc_gids, 0755, 04002]
+        self.rules["/home/olpc/.sugar/default/datastore"] = [500, 500, store_uids, store_gids, 0755, 0]
+        self.rules["/home/olpc/isolation/1/gid_pool"] = [500, 500, bin_uids, bin_gids, 0755, 066]
+        self.rules["/home/olpc/isolation/1/gid_to_data_dir"] = [500, 500, store_uids, store_gids, 0755, 002]
+
+
+    def audit_tree(self,root,level):
+        """Recursive filesystem tree evaluator"""
+
+        if level >= 25:
+            print "Filesystem weirdness at ", root, "possible loop?"
+            exit(0)
+
+        if self.rules_ok_dir(root,self.rules) != True:
+            print "Directory ", root, "FAILED"
+
+        for name in os.listdir(root):
+            path = os.path.join(root, name)
+
+            match = self.within(path,self.ignores)
+            if (match == True):
+                continue
+
+            if os.path.isdir(path):
+                if self.rules_ok_dir(path,self.rules) != True:
+                    print "Directory ", path, "FAILED"
+                self.audit_tree(path,level+1)
+
+            else:
+                good = True
+                try:
+                    p = os.lstat(path)
+                except:
+                    good = False
+
+                if good == True:
+
+                    # We ignore symlinks
+                    if stat.S_ISLNK(p.st_mode) == False:
+                        # Call the individual-file evaluator
+                        if self.rules_ok_file(path,self.rules) != True:
+                            print "File ", path, "FAILED"
+
+    def within(self,path,list):
+        """Return true if filepath lives "within" any of the directories on the
+        supplied list."""
+        match = False
+        for ign in list:
+            s=path[:len(ign)]
+            if (s == ign):
+                match = True
+        return match
+
+    def longest_match(self,path,list):
+        """Find longest match in list of checked directories"""
+        saved_p = None
+        maxlen = 0
+        for p in list:
+            s=path[:len(p)]
+            if (s == p):
+                if (len(p) > maxlen):
+                    maxlen=len(p)
+                    saved_p = p
+        return saved_p
+
+    def rules_ok_file(self,path,list):
+        """Test file for compliance with rules"""
+        testcount = 0
+        falsecount = 0
+        maxlen = 0
+
+        saved_p = self.longest_match(path,list)
+
+
+        # For each of the directories for which there are rules
+        # check to see if this filepath is compliant
+        if saved_p != None:
+            p = saved_p
+            s=path[:len(p)]
+
+            # This filepath appears to be one we care about, test it
+            if (s == p):
+
+                testcount = testcount + 1
+                r = True
+
+                q = os.stat(path)
+                mode = stat.S_IMODE(q[stat.ST_MODE])
+                uid = q[stat.ST_UID]
+                gid = q[stat.ST_GID]
+
+                # Get to rule that controls policy for this file
+                rule = list[p]
+
+                # Does the file have permission bits turned on that it shouldnt?
+                if (mode & rule[self.R_F_MASK] != 0):
+                    print "File ", path, " perm ", "%o" % mode, "is not compliant with mask ","%o" % rule[self.R_F_MASK]
+                    r = False
+
+                # Is the files UID within range?
+                uid_range = rule[self.R_F_UID]
+                ulow = uid_range[0]
+                uhigh = uid_range[1]
+
+                if (uid < ulow or uid > uhigh):
+                    print "File ", path, " with uid ", uid, "is not compliant with uid range ",rule[self.R_F_UID]
+                    r = False
+
+                # Is the files GID in range?
+                gid_range = rule[self.R_F_GID]
+                glow = gid_range[0]
+                ghigh = gid_range[1]
+
+                if (gid < glow or gid > ghigh):
+                    print "File ", path, " with gid ", gid, "is not compliant with gid range ",rule[self.R_F_UID]
+                    r = False
+                if (r == False):
+                    falsecount = falsecount + 1
+
+        if (falsecount >= testcount and testcount >= 1):
+            return False
+        else:
+            return True
+
+    def rules_ok_dir(self,path,list):
+        """Test directory for compliance with directory rules"""
+        ret = True
+
+        p = self.longest_match(path, list)
+        if (p == None):
+            return ret
+
+
+        q = os.stat(path)
+        mode = stat.S_IMODE(q.st_mode)
+        uid = q.st_uid
+        gid = q.st_gid
+
+        # Get to rule with governing policy for this dir
+        rule = list[p]
+
+        # Directory permission bits wrong?
+        if (mode != rule[self.R_D_PERM]):
+            print "Directory ", path, "mode %o" % mode, "is not compliant with mode ","%o" % rule[self.R_D_PERM]
+            ret = False
+
+        # Directory UID wrong?
+        if (uid != rule[self.R_D_UID]):
+            print "Directory ", path, "with uid", uid, "is not compliant with uid ", rule[self.R_D_UID]
+            ret = False
+
+        # Directory GID wrong?
+        if (gid != rule[self.R_D_GID]):
+            print "Directory ", path, "with gid", gid, "is not compliant with gid ", rule[self.R_D_GID]
+            ret = False
+
+        return ret
+
+
+def main():
+    f = FilesystemAudit()
+    #for path in f.rules:
+        #print "Processing:", path
+        #f.audit_tree (path)
+
+    f.audit_tree ("/",0)
+
+
+if __name__ == '__main__':
+    main()
