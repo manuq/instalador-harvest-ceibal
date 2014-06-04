@@ -303,25 +303,24 @@ def configure_harvest():
 def install():
     logging.info("Comienza la instalación...")
     get_system_version()
+
     install_rpms()
     backup_files()
     copy_files()
     configure_harvest()
-    print("Reinicie y corra: harvest-ceibal postinstall")
-    logging.info("FIN")
-
-def postinstall():
-    logging.info("Comienza la post-instalación...")
     enable_services()
+
     logging.info("FIN")
 
 def remove():
     logging.info("Comienza la desinstalación...")
     get_system_version()
+
     disable_services()
     remove_files()
     restore_files()
     remove_rpms()
+
     logging.info("FIN")
 
 
@@ -362,8 +361,6 @@ if __name__ == '__main__':
             as_sudo(install)
         elif sys.argv[1] == 'remove':
             as_sudo(remove)
-        elif sys.argv[1] == 'postinstall':
-            as_sudo(postinstall)
         elif sys.argv[1] == 'test':
             test()
         else:
