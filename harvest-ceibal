@@ -210,19 +210,29 @@ def copy_harvest_client():
     src_path = os.path.join("harvest-client", "extensions")
     copy_tree(src_path, src_path, dest_dir)
 
-    src = "harvest-client/etc/harvest-collect-ifup"
+    src = None
+    if is_dextrose:
+        src = "harvest-client/etc/harvest-collect-dextrose-ifup"
+    else:
+        src = "harvest-client/etc/harvest-collect-ifup"
     dest = "/etc/NetworkManager/dispatcher.d/harvest-collect-ifup"
     mkdir_p(os.path.dirname(dest))
     shutil.copy(src, dest)
 
     os.chmod("/etc/NetworkManager/dispatcher.d/harvest-collect-ifup", 0755)
 
+    if is_dextrose:
+        src = "harvest-client/usr/sbin/harvest-collect"
+        dest = "/usr/sbin/harvest-collect"
+        mkdir_p(os.path.dirname(dest))
+        shutil.copy(src, dest)
+
 def copy_files():
     logging.info("Copiando archivos...")
     copy_olpc_utils()
     copy_sugar3()
     copy_sugar()
-    # copy_harvest_client()
+    copy_harvest_client()
 
 def restore_files():
     if not os.path.exists(BACKUP_DIR):
@@ -296,8 +306,8 @@ def install():
     install_rpms()
     backup_files()
     copy_files()
-    # configure_harvest()
-    # print("Reinicie y corra: harvest-ceibal postinstall")
+    configure_harvest()
+    print("Reinicie y corra: harvest-ceibal postinstall")
     logging.info("FIN")
 
 def postinstall():
@@ -308,7 +318,7 @@ def postinstall():
 def remove():
     logging.info("Comienza la desinstalación...")
     get_system_version()
-    # disable_services()
+    disable_services()
     remove_files()
     restore_files()
     remove_rpms()
