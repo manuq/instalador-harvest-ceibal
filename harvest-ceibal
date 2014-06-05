@@ -109,6 +109,14 @@ def get_system_version():
     logging.info("La versión del sistema es: {0} {1}".format(system_version[0],
                                                              system_version[1]))
 
+def get_dextrose_version():
+    if system_version[0].startswith("Version-b"):
+        return "dextrose4"
+    elif system_version[0].startswith("Version-a"):
+        return "dextrose3"
+    else:
+        return None
+
 def check_rpms_installed():
     for rpm in RPM_NAMES:
         try:
@@ -184,7 +192,12 @@ def copy_olpc_utils():
 def copy_sugar3():
     src = None
     if is_dextrose:
-        src = os.path.join("src", system_version[0],
+        dextrose_version = get_dextrose_version()
+        if dextrose_version is None:
+            logging.error("No se conoce la versión de Dextrose.")
+            return
+
+        src = os.path.join("src", dextrose_version,
                            "sugar-toolkit-gtk3/sugar3/activity/activity.py")
     else:
         src = os.path.join("src", system_version[0],
