@@ -209,7 +209,12 @@ def copy_sugar3():
 def copy_sugar():
     src = None
     if is_dextrose:
-        src = os.path.join("src", system_version[0],
+        dextrose_version = get_dextrose_version()
+        if dextrose_version is None:
+            logging.error("No se conoce la versión de Dextrose.")
+            return
+
+        src = os.path.join("src", dextrose_version,
                            "sugar-toolkit/sugar/activity/activity.py")
     else:
         src = os.path.join("src", system_version[0],
