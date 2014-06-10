@@ -32,8 +32,6 @@ BACKUP_DIR = "/home/olpc/.harvest-ceibal/backup/"
 
 OLPC_UTILS_FILES = [
     "/etc/xdg/autostart/olpc-gnome-stats.desktop",
-    "/etc/NetworkManager/dispatcher.d/22-log-connectivity",
-    "/usr/sbin/olpc-connectivity",
     "/usr/bin/olpc-gnomestats",
     "/usr/bin/olpc-session",
     "/usr/lib/systemd/system/olpc-log-shutdown.service",
@@ -186,8 +184,6 @@ def copy_olpc_utils():
         src = os.path.join(utils_dir, os.path.relpath(dest, "/"))
         mkdir_p(os.path.dirname(dest))
         shutil.copy(src, dest)
-
-    os.chmod("/etc/NetworkManager/dispatcher.d/22-log-connectivity", 0755)
 
 def copy_sugar3():
     src = None
