@@ -62,6 +62,7 @@ from gi.repository import GConf
 from gi.repository import Gtk
 from gi.repository import Gdk
 from gi.repository import GObject
+from gi.repository import Gio
 import dbus
 import dbus.service
 from dbus import PROPERTIES_IFACE
@@ -106,6 +107,32 @@ ACTIVITIES_NOT_REQUIRING_OSK_ACCUMULATION = []
 if GCONF_FOR_ACTIVITIES_NOT_REQUIRING_OSK_ACCUMULATION is not None:
     ACTIVITIES_NOT_REQUIRING_OSK_ACCUMULATION = \
             GCONF_FOR_ACTIVITIES_NOT_REQUIRING_OSK_ACCUMULATION.get_list()
+
+DCON_SLEEP_PATH = '/sys/devices/platform/dcon/sleep'
+
+
+class SuspendMonitor():
+    def __init__(self, activity):
+        self._activity = activity
+        self._is_suspended = None
+
+        self._monitor = Gio.File.new_for_path(DCON_SLEEP_PATH)\
+                                .monitor_file(Gio.FileMonitorFlags.NONE, None)
+
+        self._monitor.connect('changed', self._file_changed_cb)
+
+    def _file_changed_cb(self, monitor, one_file, other_file, event):
+        if event != Gio.FileMonitorEvent.CHANGED:
+            return
+
+        with open(DCON_SLEEP_PATH) as _file:
+            is_suspended = bool(int(_file.read()))
+
+        if is_suspended == self._is_suspended:
+            return
+        self._is_suspended = is_suspended
+
+        self._activity.set_active(not is_suspended)
 
 
 class _ActivitySession(GObject.GObject):
@@ -283,6 +310,7 @@ class Activity(Window, Gtk.Container):
         settings.set_property('gtk-font-name',
                               '%s %f' % (style.FONT_FACE, style.FONT_SIZE))
 
+        monitor = SuspendMonitor(self)
         Window.__init__(self)
 
         if 'SUGAR_ACTIVITY_ROOT' in os.environ:
