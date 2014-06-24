@@ -1,7 +1,7 @@
 [submodule "harvest-client"]
 	path = harvest-client
 	url = https://github.com/manuq/harvest-client.git
-	branch = ceibal
+	branch = ceibal-simple
 [submodule "olpc-utils"]
 	path = olpc-utils
 	url = https://github.com/manuq/olpc-utils.git
