@@ -38,6 +38,10 @@ OLPC_UTILS_FILES = [
     "/usr/lib/systemd/system/olpc-log-shutdown.service",
     "/usr/sbin/olpc-log-shutdown"]
 
+OLPC_UTILS_FILES_DX3 = [
+    "/usr/bin/olpc-session",
+]
+
 SUGAR_FILES = [
     "/usr/lib/python2.7/site-packages/sugar/activity/activity.py",
 ]
@@ -183,11 +187,14 @@ def backup_files():
 
 def copy_olpc_utils():
     utils_dir = None
+    utils_files = OLPC_UTILS_FILES
     if is_dextrose:
         utils_dir = "olpc-utils-" + dextrose_version
+        if dextrose_version == "dextrose3":
+            utils_files = OLPC_UTILS_FILES_DX3
     else:
         utils_dir = "olpc-utils"
-    for dest in OLPC_UTILS_FILES:
+    for dest in utils_files:
         src = os.path.join(utils_dir, dest[1:])
         mkdir_p(os.path.dirname(dest))
         shutil.copy(src, dest)

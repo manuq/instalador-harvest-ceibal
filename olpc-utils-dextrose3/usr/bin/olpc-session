@@ -199,7 +199,7 @@ cat /proc/uptime >$HOME/.boot_time
 if [ "$desktop" = "sugar" ]
 then
 	## Sugar
-	printf '%(%s)T START_SUGAR\n' -1 >> $HOME/.olpc-launch-stats
+	echo $(date +%s) START_SUGAR >> $HOME/.olpc-launch-stats
 
 	## If .rfkill_block_wifi exists, ensure it is blocked
 	## (we may have unblocked it for gnome) #10532
@@ -209,7 +209,7 @@ then
 	cchmod 0755 $HOME/Activities
 else
 	## Non-Sugar Desktop
-	printf '%(%s)T START_GNOME\n' -1 >> $HOME/.olpc-launch-stats
+	echo $(date +%s) START_GNOME >> $HOME/.olpc-launch-stats
 
 	## GNOME should be able to switch on wifi #10532
 	if [ -e $HOME/.rfkill_block_wifi ]; then
