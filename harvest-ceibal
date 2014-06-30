@@ -13,6 +13,7 @@ import subprocess
 import ConfigParser
 
 is_dextrose = None
+dextrose_version = None
 try:
     import ceibal.laptops
 except ImportError:
@@ -93,27 +94,33 @@ def parse_system_version(command_out):
     if result:
         return [result.group(1), result.group(2)]
 
+def get_dextrose_version():
+    if "Version-b" in system_version[0]:
+        return "dextrose4"
+    elif "Version-a" in system_version[0]:
+        return "dextrose3"
+    else:
+        return None
+
 def get_system_version():
     global system_version
+    global dextrose_version
     if is_dextrose:
         xo = ceibal.laptops.XO()
         build = xo._build
-        model = xo._model.rsplit()[0]
+        model = None
+        if hasattr(xo, '_model'):
+            model = xo._model.replace('\x00', '')
+        else:
+            model = ceibal.laptops.get_model_laptop().replace('\x00', '')
         system_version = [build, model]
+        dextrose_version = get_dextrose_version()
     else:
         out = subprocess.check_output(['cat', '/etc/issue'])
         system_version = parse_system_version(out)
 
     logging.info("La versión del sistema es: {0} {1}".format(system_version[0],
                                                              system_version[1]))
-
-def get_dextrose_version():
-    if system_version[0].startswith("Version-b"):
-        return "dextrose4"
-    elif system_version[0].startswith("Version-a"):
-        return "dextrose3"
-    else:
-        return None
 
 def check_rpms_installed():
     for rpm in RPM_NAMES:
@@ -188,7 +195,6 @@ def copy_olpc_utils():
 def copy_sugar3():
     src = None
     if is_dextrose:
-        dextrose_version = get_dextrose_version()
         if dextrose_version is None:
             logging.error("No se conoce la versión de Dextrose.")
             return
@@ -205,7 +211,6 @@ def copy_sugar3():
 def copy_sugar():
     src = None
     if is_dextrose:
-        dextrose_version = get_dextrose_version()
         if dextrose_version is None:
             logging.error("No se conoce la versión de Dextrose.")
             return
@@ -320,9 +325,9 @@ def install():
 
     install_rpms()
     backup_files()
-    copy_files()
-    configure_harvest()
-    enable_services()
+    # copy_files()
+    # configure_harvest()
+    # enable_services()
 
     logging.info("FIN")
 
