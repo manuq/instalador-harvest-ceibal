@@ -184,7 +184,7 @@ def backup_files():
 def copy_olpc_utils():
     utils_dir = None
     if is_dextrose:
-        utils_dir = "olpc-utils-dextrose"
+        utils_dir = "olpc-utils-" + dextrose_version
     else:
         utils_dir = "olpc-utils"
     for dest in OLPC_UTILS_FILES:
@@ -249,9 +249,9 @@ def copy_harvest_client():
 def copy_files():
     logging.info("Copiando archivos...")
     copy_olpc_utils()
-    copy_sugar3()
-    copy_sugar()
-    copy_harvest_client()
+    # copy_sugar3()
+    # copy_sugar()
+    # copy_harvest_client()
 
 def restore_files():
     if not os.path.exists(BACKUP_DIR):
@@ -325,7 +325,7 @@ def install():
 
     install_rpms()
     backup_files()
-    # copy_files()
+    copy_files()
     # configure_harvest()
     # enable_services()
 
