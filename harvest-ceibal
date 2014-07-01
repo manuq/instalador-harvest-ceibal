@@ -41,6 +41,7 @@ OLPC_UTILS_FILES = [
 
 OLPC_UTILS_FILES_DX3 = [
     "/usr/bin/olpc-session",
+    "/etc/init/olpc-log-shutdown.conf",
     "/usr/sbin/olpc-log-shutdown",
 ]
 
