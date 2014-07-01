@@ -209,6 +209,10 @@ def copy_sugar3():
             logging.error("No se conoce la versión de Dextrose.")
             return
 
+        elif dextrose_version == "dextrose3":
+            logging.info("No se copia Sugar GKT3 en Dextrose3 porque no hay.")
+            return
+
         src = os.path.join("src", dextrose_version,
                            "sugar-toolkit-gtk3/sugar3/activity/activity.py")
     else:
@@ -259,9 +263,9 @@ def copy_harvest_client():
 def copy_files():
     logging.info("Copiando archivos...")
     copy_olpc_utils()
-    # copy_sugar3()
+    copy_sugar3()
     # copy_sugar()
-    # copy_harvest_client()
+    copy_harvest_client()
 
 def restore_files():
     if not os.path.exists(BACKUP_DIR):
@@ -277,6 +281,11 @@ def remove_files():
 
 def enable_services():
     logging.info("Activando servicios...")
+
+    if is_dextrose and dextrose_version == "dextrose3":
+        logging.info("No hay servicios que levantar en Dextrose3.")
+        return
+
     try:
         subprocess.check_call(["systemctl", "enable", "olpc-log-shutdown.service"])
     except subprocess.CalledProcessError:
@@ -336,8 +345,8 @@ def install():
     install_rpms()
     backup_files()
     copy_files()
-    # configure_harvest()
-    # enable_services()
+    configure_harvest()
+    enable_services()
 
     logging.info("FIN")
 
