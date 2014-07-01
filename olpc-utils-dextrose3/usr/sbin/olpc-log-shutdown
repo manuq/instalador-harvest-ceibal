@@ -1,0 +1,4 @@
+#!/bin/bash
+
+export OLPC_HOME=/home/olpc
+runuser -m olpc -c "echo $(date +%s) END >> $OLPC_HOME/.olpc-launch-stats"
