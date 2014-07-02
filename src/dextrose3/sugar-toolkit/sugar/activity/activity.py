@@ -58,6 +58,7 @@ from functools import partial
 import gconf
 import gtk
 import gobject
+import gio
 import dbus
 import dbus.service
 from dbus import PROPERTIES_IFACE
@@ -100,6 +101,33 @@ J_DBUS_INTERFACE = 'org.laptop.Journal'
 POWERD_INHIBIT_DIR = '/var/run/powerd-inhibit-suspend'
 
 CONN_INTERFACE_ACTIVITY_PROPERTIES = 'org.laptop.Telepathy.ActivityProperties'
+
+
+DCON_SLEEP_PATH = '/sys/devices/platform/dcon/sleep'
+
+class SuspendMonitor():
+
+    def __init__(self, activity):
+        self._activity = activity
+        self._is_suspended = None
+
+        self._monitor = gio.File(DCON_SLEEP_PATH)\
+                           .monitor_file(gio.FILE_MONITOR_NONE, None)
+
+        self._monitor.connect('changed', self._file_changed_cb)
+
+    def _file_changed_cb(self, monitor, one_file, other_file, event):
+        if event != gio.FILE_MONITOR_EVENT_CHANGED:
+            return
+
+        with open(DCON_SLEEP_PATH) as _file:
+            is_suspended = bool(int(_file.read()))
+
+        if is_suspended == self._is_suspended:
+            return
+        self._is_suspended = is_suspended
+
+        self._activity.set_active(not is_suspended)
 
 
 class _ActivitySession(gobject.GObject):
@@ -260,6 +288,7 @@ class Activity(Window, gtk.Container):
             the base class __init()__ before doing Activity specific things.
 
         """
+        monitor = SuspendMonitor(self)
         Window.__init__(self)
 
         if 'SUGAR_ACTIVITY_ROOT' in os.environ:
@@ -317,6 +346,13 @@ class Activity(Window, gtk.Container):
             if 'share-scope' in self._jobject.metadata:
                 share_scope = self._jobject.metadata['share-scope']
 
+            if 'launch-times' in self._jobject.metadata:
+                self._jobject.metadata['launch-times'] += ', %d' % \
+                    int(time.time())
+            else:
+                self._jobject.metadata['launch-times'] = \
+                    str(int(time.time()))
+
             if 'spent-times' in self._jobject.metadata:
                 self._jobject.metadata['spent-times'] += ', 0'
             else:
@@ -371,6 +407,7 @@ class Activity(Window, gtk.Container):
         jobject.metadata['preview'] = ''
         jobject.metadata['share-scope'] = SCOPE_PRIVATE
         jobject.metadata['icon-color'] = icon_color
+        jobject.metadata['launch-times'] = str(int(time.time()))
         jobject.metadata['spent-times'] = '0'
         jobject.file_path = ''
 
