@@ -105,12 +105,37 @@ def parse_system_version(command_out):
         return [result.group(1), result.group(2)]
 
 def get_dextrose_version():
-    if "Version-b" in system_version[0]:
+    if "Version-b" in system_version[0] or "Dextrose 4" in system_version[0]:
         return "dextrose4"
-    elif "Version-a" in system_version[0]:
+    elif "Version-a" in system_version[0] or "Dextrose 3" in system_version[0]:
         return "dextrose3"
     else:
         return None
+
+def _read_file(path):
+    if os.access(path, os.R_OK) == 0:
+        return None
+
+    fd = open(path, 'r')
+    value = fd.read()
+    fd.close()
+    if value:
+        value = value.strip('\n')
+        return value
+    else:
+        return None
+
+def get_build():
+    build_no = None
+    if os.path.isfile('/boot/olpc_build'):
+        build_no = _read_file('/boot/olpc_build')
+    elif os.path.isfile('/bootpart/olpc_build'):
+        build_no = _read_file('/bootpart/olpc_build')
+
+    if build_no is None:
+        build_no = _read_file('/etc/redhat-release')
+
+    return build_no
 
 def get_system_version():
     global system_version
@@ -118,6 +143,8 @@ def get_system_version():
     if is_dextrose:
         xo = ceibal.laptops.XO()
         build = xo._build
+        if build is None:
+            build = get_build()
         model = None
         if hasattr(xo, '_model'):
             model = xo._model.replace('\x00', '')
