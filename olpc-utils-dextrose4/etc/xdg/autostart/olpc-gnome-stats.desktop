@@ -4,6 +4,6 @@ Name=GNOME stats
 Comment=Log statistics for GNOME applications
 Exec=/usr/bin/olpc-gnomestats
 OnlyShowIn=GNOME;Unity;MATE;
-X-GNOME-Autostart-Phase=Initialization
+#X-GNOME-Autostart-Phase=Initialization
 X-GNOME-AutoRestart=false
 X-GNOME-Autostart-Notify=true
