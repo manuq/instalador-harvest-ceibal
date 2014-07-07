@@ -275,7 +275,7 @@ def copy_harvest_client():
 
     src = None
     if is_dextrose:
-        src = "harvest-client/etc/harvest-collect-dextrose-ifup"
+        src = "harvest-client/etc/harvest-collect-" + dextrose_version + "-ifup"
     else:
         src = "harvest-client/etc/harvest-collect-ifup"
     dest = "/etc/NetworkManager/dispatcher.d/harvest-collect-ifup"
