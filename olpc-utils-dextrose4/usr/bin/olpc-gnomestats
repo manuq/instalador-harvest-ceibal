@@ -137,8 +137,9 @@ class X11Sniffer(object):
             if application.app_name == 'nautilus':
                 return
 
-            self._current_app = application
-            self.update("ACTIVATE", application)
+            if application != self._current_app:
+                self._current_app = application
+                self.update("ACTIVATE", application)
 
 
 class _Application(object):
