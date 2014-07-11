@@ -30,9 +30,12 @@ class X11Sniffer(object):
         self._screen.disconnect_by_func(self._window_closed_cb)
         self._screen.disconnect_by_func(self._active_window_changed_cb)
 
-    def update(self, stat_type, application):
+    def update(self, stat_type, application=None):
         current_time = time.time()
-        logging.info("%f %s %r" % (current_time, stat_type, application))
+        if application is None:
+            logging.info("%f %s" % (current_time, stat_type))
+        else:
+            logging.info("%f %s %r" % (current_time, stat_type, application))
 
     def _window_opened_cb(self, screen, window):
         if window.get_window_type() == wnck.WINDOW_DESKTOP:
@@ -65,7 +68,6 @@ class X11Sniffer(object):
 
         if cur_application is not None:
             if not wnck_app.get_windows():
-                self.update("END", application)
                 del self._applications[wnck_app]
 
     def _active_window_changed_cb(self, screen, previous_window=None):
@@ -79,16 +81,22 @@ class X11Sniffer(object):
 
         app = window.get_application()
         application = self._applications.get(app)
+
+        def deactivate():
+            return (self._current_app is not None and
+                    (application is None or
+                     application.app_name == 'nautilus'))
+
+        if deactivate():
+            self._current_app = None
+            self.update("DEACTIVATE")
+
         if application is not None:
             if application.window_xid is None:
                 application.window_xid = window.get_xid()
-                self.update("START", application)
 
-            if self._current_app == application:
+            if application.app_name == 'nautilus':
                 return
-
-            if self._current_app is not None:
-                self.update("DEACTIVATE", self._current_app)
 
             self._current_app = application
             self.update("ACTIVATE", application)
