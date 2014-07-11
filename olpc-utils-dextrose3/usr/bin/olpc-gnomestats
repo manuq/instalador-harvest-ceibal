@@ -2,9 +2,12 @@
 
 import gtk
 import wnck
+import gio
+
 import logging
 import time
 import os.path
+
 
 logging_filename = os.path.join(os.path.expanduser("~"),
                                 ".olpc-gnome-stats")
@@ -12,12 +15,40 @@ logging_filename = os.path.join(os.path.expanduser("~"),
 logging.basicConfig(filename=logging_filename, level=logging.INFO,
                     format='%(message)s')
 
+DCON_SLEEP_PATH = '/sys/devices/platform/dcon/sleep'
+
+
+class SuspendMonitor():
+    def __init__(self, activity):
+        self._activity = activity
+        self._is_suspended = None
+
+        self._monitor = gio.File(DCON_SLEEP_PATH)\
+                           .monitor_file(gio.FILE_MONITOR_NONE, None)
+
+        self._monitor.connect('changed', self._file_changed_cb)
+
+    def _file_changed_cb(self, monitor, one_file, other_file, event):
+        if event != gio.FILE_MONITOR_EVENT_CHANGED:
+            return
+
+        with open(DCON_SLEEP_PATH) as _file:
+            is_suspended = bool(int(_file.read()))
+
+        if is_suspended == self._is_suspended:
+            return
+        self._is_suspended = is_suspended
+
+        self._activity.set_active(not is_suspended)
+
+
 class X11Sniffer(object):
     def __init__(self):
         self._screen = wnck.screen_get_default()
         self._applications = {}
         self._current_app = None
         self._start_time = 0
+        self._monitor = SuspendMonitor(self)
 
     def start(self):
         self._screen.connect('window-opened', self._window_opened_cb)
@@ -36,6 +67,14 @@ class X11Sniffer(object):
             logging.info("%f %s" % (current_time, stat_type))
         else:
             logging.info("%f %s %r" % (current_time, stat_type, application))
+
+    def set_active(self, is_resumed):
+        if is_resumed:
+            if self._current_app is not None:
+                self.update("ACTIVATE", self._current_app)
+        else:
+            if self._current_app is not None:
+                self.update("DEACTIVATE")
 
     def _window_opened_cb(self, screen, window):
         if window.get_window_type() == wnck.WINDOW_DESKTOP:
