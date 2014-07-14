@@ -5,6 +5,7 @@ import re
 import sys
 import pwd
 import grp
+import time
 import errno
 import shutil
 import logging
@@ -64,8 +65,7 @@ HARVEST_CPSECTION_DIR = "/usr/share/sugar/extensions/cpsection/webaccount/servic
 HARVEST_CONFIG_PATH = os.path.join(SCRIPT_PATH, 'config.cfg')
 HARVEST_OPTIONS = [
     ('api_key', 'string'),
-    ('timestamp', 'int'),
-    ('retry', 'int'),
+    ('frequency', 'int'),
     ('editable', 'bool'),
     ('hostname', 'string'),
 ]
@@ -340,19 +340,36 @@ def demote(user_uid, user_gid):
         os.setuid(user_uid)
     return result
 
-def configure_harvest():
+def set_configuration(option, opt_type, value):
     env = os.environ.copy()
     env['LOGNAME']  = 'olpc'
     env['USER']  = env['LOGNAME']
     env['HOME']  = '/home/olpc'
     env['PWD']  = env['HOME']
 
+    gconfkey = "/desktop/sugar/collaboration/harvest_" + option
+    args = ['gconftool-2', '--set', gconfkey,
+            '--type', opt_type, str(value)]
+
+    process = subprocess.Popen(
+        args,
+        preexec_fn=demote(OLPC_UID, OLPC_GID),
+        cwd=env['HOME'], env=env)
+    result = process.wait()
+
+def configure_harvest():
     config = ConfigParser.ConfigParser()
     config.read(HARVEST_CONFIG_PATH)
+
+    timestamp = int(time.time())
+    opt_type = 'int'
+    for option in ['timestamp', 'retry']:
+        set_configuration(option, opt_type, timestamp)
+
     for option, opt_type in HARVEST_OPTIONS:
         value = None
         try:
-            value = config.get('harvest', option, opt_type)
+            value = config.get('harvest', option)
 
         except ConfigParser.NoSectionError, e:
             logging.error("Falló la lectura del archivo de configuración.")
@@ -362,16 +379,7 @@ def configure_harvest():
             raise e
 
         else:
-            gconfkey = "/desktop/sugar/collaboration/harvest_" + option
-            args = ['gconftool-2', '--set', gconfkey,
-                    '--type', opt_type, str(value)]
-
-            process = subprocess.Popen(
-                args,
-                preexec_fn=demote(OLPC_UID, OLPC_GID),
-                cwd=env['HOME'], env=env)
-            result = process.wait()
-
+            set_configuration(option, opt_type, value)
 
 
 def install():
