@@ -405,7 +405,7 @@ def test():
 
 def usage():
     print("Usage:")
-    print("harvest-ceibal [install|postinstall|remove]")
+    print("harvest-ceibal [install|remove]")
 
 
 __test__ = dict(allem="""
