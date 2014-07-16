@@ -347,6 +347,7 @@ def set_configuration(option, opt_type, value):
     env['USER']  = env['LOGNAME']
     env['HOME']  = '/home/olpc'
     env['PWD']  = env['HOME']
+    env['DISPLAY']  = ':0'
 
     gconfkey = "/desktop/sugar/collaboration/harvest_" + option
     args = ['gconftool-2', '--set', gconfkey,
@@ -357,6 +358,8 @@ def set_configuration(option, opt_type, value):
         preexec_fn=demote(OLPC_UID, OLPC_GID),
         cwd=env['HOME'], env=env)
     result = process.wait()
+    logging.info("Configurando %s: %r" % (option, result))
+
 
 def configure_harvest():
     config = ConfigParser.ConfigParser()
