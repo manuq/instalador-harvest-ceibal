@@ -39,6 +39,7 @@ OLPC_UTILS_COMMON = [
 OLPC_UTILS_FILES = [
     "/usr/bin/olpc-session",
     "/usr/lib/systemd/system/olpc-log-shutdown.service",
+    "/usr/lib/python2.7/site-packages/sugar3/bundle/activitybundle.py",
     "/usr/sbin/olpc-log-shutdown",
 ]
 
