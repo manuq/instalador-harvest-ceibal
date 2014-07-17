@@ -32,8 +32,8 @@ RPM_NAMES = ['gnome-python2-libwnck', 'libwnck']
 BACKUP_DIR = "/home/olpc/.harvest-ceibal/backup/"
 
 OLPC_UTILS_COMMON = [
-    "/etc/xdg/autostart/olpc-gnome-stats.desktop",
-    "/usr/bin/olpc-gnomestats",
+    "/etc/X11/xinit/xinitrc.d/52-olpc-appstats.sh",
+    "/usr/bin/olpc-appstats",
 ]
 
 OLPC_UTILS_FILES = [
@@ -238,6 +238,8 @@ def copy_olpc_utils():
         src = os.path.join(utils_dir, dest[1:])
         mkdir_p(os.path.dirname(dest))
         shutil.copy(src, dest)
+
+    os.chmod("/etc/X11/xinit/xinitrc.d/52-olpc-appstats.sh", 0755)
 
 def copy_sugar3():
     src = None
