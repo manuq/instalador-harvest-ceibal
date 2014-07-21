@@ -352,7 +352,7 @@ def set_configuration(option, opt_type, value):
     env['DISPLAY']  = ':0'
 
     gconfkey = "/desktop/sugar/collaboration/harvest_" + option
-    args = ['gconftool-2', '--set', gconfkey,
+    args = ['dbus-launch', 'gconftool-2', '--set', gconfkey,
             '--type', opt_type, str(value)]
 
     process = subprocess.Popen(
