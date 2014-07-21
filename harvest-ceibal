@@ -362,6 +362,21 @@ def set_configuration(option, opt_type, value):
     result = process.wait()
     logging.info("Configurando %s: %r" % (option, result))
 
+    args = ['gconftool-2', '--direct', '--config-source',
+            'xml:readwrite:/etc/gconf/gconf.xml.defaults', '--set', gconfkey,
+            '--type', opt_type, str(value)]
+
+    env = os.environ.copy()
+    env['HOME']  = '/root'
+    env['PWD']  = env['HOME']
+    env['DISPLAY']  = ':0'
+
+    process = subprocess.Popen(
+        args,
+        preexec_fn=demote(ROOT_UID, ROOT_GID),
+        cwd=env['HOME'], env=env)
+    result = process.wait()
+    logging.info("Configurando como root %s: %r" % (option, result))
 
 def configure_harvest():
     config = ConfigParser.ConfigParser()
