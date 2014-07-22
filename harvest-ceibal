@@ -34,19 +34,17 @@ BACKUP_DIR = "/home/olpc/.harvest-ceibal/backup/"
 OLPC_UTILS_COMMON = [
     "/etc/X11/xinit/xinitrc.d/52-olpc-appstats.sh",
     "/usr/bin/olpc-appstats",
+    "/usr/bin/olpc-session",
+    "/usr/sbin/olpc-log-shutdown",
 ]
 
 OLPC_UTILS_FILES = [
-    "/usr/bin/olpc-session",
     "/usr/lib/systemd/system/olpc-log-shutdown.service",
     "/usr/lib/python2.7/site-packages/sugar3/bundle/activitybundle.py",
-    "/usr/sbin/olpc-log-shutdown",
 ]
 
 OLPC_UTILS_FILES_DX3 = [
-    "/usr/bin/olpc-session",
     "/etc/init/olpc-log-shutdown.conf",
-    "/usr/sbin/olpc-log-shutdown",
 ]
 
 SUGAR_FILES = [
