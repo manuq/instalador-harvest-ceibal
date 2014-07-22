@@ -36,6 +36,8 @@ OLPC_UTILS_COMMON = [
     "/usr/bin/olpc-appstats",
     "/usr/bin/olpc-session",
     "/usr/sbin/olpc-log-shutdown",
+    "/usr/bin/olpc-switch-to-sugar",
+    "/usr/share/sugar/extensions/cpsection/switchdesktop/model.py",
 ]
 
 OLPC_UTILS_FILES = [

@@ -1,0 +1,67 @@
+#!/usr/bin/env python
+#
+# Copyright (C) 2009 One Laptop per Child
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+
+
+import sys
+import os
+import os.path
+import subprocess
+import gettext
+import time
+
+from gi.repository import Gtk
+
+_ = lambda msg: gettext.dgettext('olpc-switch-desktop', msg)
+
+def do_switch():
+	with open("/home/olpc/.olpc-launch-stats", "a") as log_file:
+		log_file.write("{0} END".format(int(time.time())) + '\n')
+	try:
+		fd = open(os.path.join(os.environ['HOME'], ".olpc-active-desktop"), "w")
+		fd.write("sugar")
+		fd.close()
+	except Exception, e:
+		print "Error:", e
+		dlg = Gtk.MessageDialog(None, 0, Gtk.MessageType.ERROR,
+			Gtk.ButtonsType.OK, _("Could not switch desktop: an internal "
+			"error has occurred."))
+		dlg.run()
+		dlg.destroy()
+		return
+	subprocess.call(['dbus-send','--session','--dest=org.gnome.SessionManager',
+		'/org/gnome/SessionManager','org.gnome.SessionManager.Logout',
+		'uint32:1'])
+
+def main():
+	dlg = Gtk.MessageDialog(None, 0, Gtk.MessageType.INFO,
+		Gtk.ButtonsType.OK_CANCEL, _("Click OK to switch to the Sugar "
+		"learning environment.\nAll active applications will be closed."))
+	dlg.set_title(_("Switch desktop"))
+	dlg.set_property("skip-taskbar-hint", False)
+
+	icon_theme = Gtk.IconTheme.get_default()
+	pixbuf = icon_theme.load_icon("olpc-switch-to-sugar", 48, 0)
+	dlg.set_icon(pixbuf)
+
+	resp = dlg.run()
+	dlg.destroy()
+	if resp == Gtk.ResponseType.OK:
+		do_switch()
+
+if __name__ == "__main__":
+	main()
