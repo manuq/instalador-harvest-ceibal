@@ -5,8 +5,15 @@ import wnck
 import gio
 
 import logging
+from logging.handlers import RotatingFileHandler
 import time
 import os
+
+
+DCON_SLEEP_PATH = '/sys/devices/platform/dcon/sleep'
+LOG_MAX_SIZE = 1048576
+
+_logger = None
 
 
 def _read_file(path):
@@ -22,20 +29,25 @@ def _read_file(path):
     else:
         return None
 
-logging_filename = None
-session_type = _read_file('/home/olpc/.olpc-active-desktop')
-if session_type == 'gnome':
-    logging_filename = os.path.join(os.path.expanduser("~"),
-                                    ".olpc-gnome-stats")
-else:
-    logging_filename = os.path.join(os.path.expanduser("~"),
-                                    ".olpc-sugar-stats")
-del session_type
+def setup():
+    global _logger
 
-logging.basicConfig(filename=logging_filename, level=logging.INFO,
-                    format='%(message)s')
+    logging_filename = None
+    session_type = _read_file('/home/olpc/.olpc-active-desktop')
+    if session_type == 'gnome':
+        logging_filename = os.path.join(os.path.expanduser("~"),
+                                        ".olpc-gnome-stats")
+    else:
+        logging_filename = os.path.join(os.path.expanduser("~"),
+                                        ".olpc-sugar-stats")
 
-DCON_SLEEP_PATH = '/sys/devices/platform/dcon/sleep'
+    _logger = logging.Logger('appstats', level=logging.INFO)
+
+    log_handler = RotatingFileHandler(
+        logging_filename, maxBytes=LOG_MAX_SIZE, backupCount=0)
+    log_handler.setFormatter(logging.Formatter('%(message)s'))
+
+    _logger.addHandler(log_handler)
 
 
 class SuspendMonitor():
@@ -84,9 +96,9 @@ class X11Sniffer(object):
     def update(self, stat_type, application=None):
         current_time = time.time()
         if application is None:
-            logging.info("%f %s" % (current_time, stat_type))
+            _logger.info("%f %s" % (current_time, stat_type))
         else:
-            logging.info("%f %s %r" % (current_time, stat_type, application))
+            _logger.info("%f %s %r" % (current_time, stat_type, application))
 
     def set_active(self, is_resumed):
         if is_resumed:
@@ -196,7 +208,12 @@ def _get_x11_property(window, prop):
         return prop_info[2]
 
 
-sniffer = X11Sniffer()
-sniffer.start()
+def main():
+    setup()
+    sniffer = X11Sniffer()
+    sniffer.start()
 
-gtk.main()
+    gtk.main()
+
+if __name__ == '__main__':
+    main()
