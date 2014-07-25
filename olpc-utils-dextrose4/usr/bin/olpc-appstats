@@ -3,6 +3,7 @@
 import gtk
 import wnck
 import gio
+import gobject
 
 import logging
 from logging.handlers import RotatingFileHandler
@@ -50,10 +51,16 @@ def setup():
     _logger.addHandler(log_handler)
 
 
-class SuspendMonitor():
-    def __init__(self, activity):
-        self._activity = activity
-        self._is_suspended = None
+class SuspendMonitor(gobject.GObject):
+    __gsignals__ = {
+        'suspend': (gobject.SIGNAL_RUN_FIRST, gobject.TYPE_NONE, ([])),
+        'resume': (gobject.SIGNAL_RUN_FIRST, gobject.TYPE_NONE, ([])),
+    }
+
+    def __init__(self):
+        gobject.GObject.__init__(self)
+
+        self._is_suspended = False
 
         self._monitor = gio.File(DCON_SLEEP_PATH)\
                            .monitor_file(gio.FILE_MONITOR_NONE, None)
@@ -71,16 +78,36 @@ class SuspendMonitor():
             return
         self._is_suspended = is_suspended
 
-        self._activity.set_active(not is_suspended)
+        if self._is_suspended:
+            self.emit('suspend')
+        else:
+            self.emit('resume')
+
+
+class SessionLogResume():
+    def __init__(self, monitor):
+        monitor.connect('suspend', self._suspend_cb)
+        monitor.connect('resume', self._resume_cb)
+
+    def _suspend_cb(self, event):
+        self._log("SUSPEND")
+
+    def _resume_cb(self, event):
+        self._log("RESUME")
+
+    def _log(self, label):
+        with open("/home/olpc/.olpc-launch-stats", "a") as log_file:
+            log_file.write("{0} {1}".format(int(time.time()), label) + '\n')
 
 
 class X11Sniffer(object):
-    def __init__(self):
+    def __init__(self, monitor):
         self._screen = wnck.screen_get_default()
         self._applications = {}
         self._current_app = None
         self._start_time = 0
-        self._monitor = SuspendMonitor(self)
+        monitor.connect('suspend', self._suspend_cb)
+        monitor.connect('resume', self._resume_cb)
 
     def start(self):
         self._screen.connect('window-opened', self._window_opened_cb)
@@ -100,13 +127,13 @@ class X11Sniffer(object):
         else:
             _logger.info("%f %s %r" % (current_time, stat_type, application))
 
-    def set_active(self, is_resumed):
-        if is_resumed:
-            if self._current_app is not None:
-                self.update("ACTIVATE", self._current_app)
-        else:
-            if self._current_app is not None:
-                self.update("DEACTIVATE")
+    def _suspend_cb(self, event):
+        if self._current_app is not None:
+            self.update("DEACTIVATE")
+
+    def _resume_cb(self, event):
+        if self._current_app is not None:
+            self.update("ACTIVATE", self._current_app)
 
     def _window_opened_cb(self, screen, window):
         if window.get_window_type() == wnck.WINDOW_DESKTOP:
@@ -210,7 +237,9 @@ def _get_x11_property(window, prop):
 
 def main():
     setup()
-    sniffer = X11Sniffer()
+    monitor = SuspendMonitor()
+    session_log_resume = SessionLogResume(monitor)
+    sniffer = X11Sniffer(monitor)
     sniffer.start()
 
     gtk.main()
