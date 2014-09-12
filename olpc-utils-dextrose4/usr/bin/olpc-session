@@ -174,6 +174,8 @@ then
 	## Sugar
 	printf '%(%s)T START_SUGAR\n' -1 >> $HOME/.olpc-launch-stats
 
+	printf '%(%s)T START_SUGAR\n' -1 >> $HOME/.olpc-sugar-stats
+
 	## If .rfkill_block_wifi exists, ensure it is blocked
 	## (we may have unblocked it for gnome) #10532
 	[ -e $HOME/.rfkill_block_wifi ] && /sbin/rfkill block wifi
@@ -183,7 +185,8 @@ then
 else
 	## Non-Sugar Desktop
 	printf '%(%s)T START_GNOME\n' -1 >> $HOME/.olpc-launch-stats
-
+	
+	printf '%(%s)T START_GNOME\n' -1 >> $HOME/.olpc-gnome-stats
 	## GNOME should be able to switch on wifi #10532
 	if [ -e $HOME/.rfkill_block_wifi ]; then
 		# tell NM wifi should be down
